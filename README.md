@@ -39,9 +39,20 @@ A repository caller must:
 5. Select the smallest applicable profile and explicitly enable build or end-to-end
    capabilities when they exist.
 
-The organization workflow template will be added in a follow-up change after this initial
-workflow has a durable squash-merge SHA. This avoids a mutable `main` reference and avoids
-publishing a template that points to an unreachable pre-merge commit.
+The organization template at [`workflow-templates/ci.yml`](workflow-templates/ci.yml)
+starts with the publishable-package profile. Before committing a generated caller, select
+the applicable profile, remove `run_build` when the project has no build script, and
+enable `run_e2e` only when the application exposes that capability.
+
+### Known-good workflow releases
+
+| Release | Reusable workflow SHA                                                                                                             | Validation                                                                        |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Initial | [`78523ec52c5a598be22e8682cee47409bbe9b4a5`](https://github.com/Mikode13/.github/commit/78523ec52c5a598be22e8682cee47409bbe9b4a5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/32670985582) |
+
+Callers pin the full SHA from this table. The next validated release becomes the new
+default template reference, while the preceding entry remains the immediate rollback
+target.
 
 ## Developing the workflows
 
