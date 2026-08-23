@@ -51,7 +51,8 @@ jobs:
           tar --extract --gzip --file "$archive" --directory "$RUNNER_TEMP" actionlint
 
       - name: Validate workflow syntax
-        run: '$RUNNER_TEMP/actionlint'
+        run: |
+          "$RUNNER_TEMP/actionlint"
 
   node:
     name: node fixture
