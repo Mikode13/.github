@@ -1,0 +1,50 @@
+{
+	"name": "@mikode13/ci-package-fixture",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Contract fixture for the MiKode publishable-package CI profile.",
+	"license": "SEE LICENSE IN LICENSE",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"engines": {
+		"node": "^22.13.0 || ^24.0.0"
+	},
+	"packageManager": "pnpm@11.17.0",
+	"scripts": {
+		"preinstall": "npx only-allow pnpm",
+		"prepack": "pnpm run build",
+		"format:check": "prettier . --check",
+		"lint": "eslint . --max-warnings 0",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json && node --check scripts/pack-check.mjs",
+		"check": "pnpm run format:check && pnpm run lint && pnpm run typecheck",
+		"test": "pnpm run test:unit",
+		"test:unit": "vitest run --project unit",
+		"test:unit:watch": "vitest --project unit",
+		"test:coverage": "vitest run --project unit --coverage",
+		"build": "tsc -p tsconfig.build.json",
+		"pack:check": "node scripts/pack-check.mjs"
+	},
+	"devDependencies": {
+		"@mikode13/code-quality": "0.1.0",
+		"@mikode13/code-style": "0.1.0",
+		"@mikode13/tsconfig": "0.1.0",
+		"@types/node": "24.13.3",
+		"@vitest/coverage-v8": "4.1.10",
+		"eslint": "10.8.0",
+		"prettier": "3.9.6",
+		"typescript": "6.0.3",
+		"vitest": "4.1.10"
+	}
+}

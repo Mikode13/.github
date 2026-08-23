@@ -1,0 +1,367 @@
+name: Reusable CI
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: 'Repository profile: node, package, or docs.'
+        required: true
+        type: string
+      working_directory:
+        description: Directory containing the project package.json.
+        default: .
+        type: string
+      lockfile_path:
+        description: Path to pnpm-lock.yaml, relative to the repository root.
+        default: pnpm-lock.yaml
+        type: string
+      run_build:
+        description: Run pnpm run build on Node.js 22 and 24.
+        default: false
+        type: boolean
+      run_e2e:
+        description: Install Playwright browsers and run pnpm run test:e2e.
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: validate contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate workflow inputs
+        shell: bash
+        env:
+          LOCKFILE_PATH: ${{ inputs.lockfile_path }}
+          PROFILE: ${{ inputs.profile }}
+          RUN_BUILD: ${{ inputs.run_build }}
+          RUN_E2E: ${{ inputs.run_e2e }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          validate_relative_path() {
+            local name="$1"
+            local value="$2"
+
+            if [[ -z "$value" || "$value" == /* || "$value" =~ (^|/)\.\.(/|$) ]]; then
+              echo "::error::$name must be a repository-relative path without '..' segments"
+              return 1
+            fi
+          }
+
+          case "$PROFILE" in
+            node | package | docs) ;;
+            *)
+              echo "::error::profile must be one of: node, package, docs"
+              exit 1
+              ;;
+          esac
+
+          validate_relative_path working_directory "$WORKING_DIRECTORY"
+          validate_relative_path lockfile_path "$LOCKFILE_PATH"
+
+          if [[ ! -f "$WORKING_DIRECTORY/package.json" ]]; then
+            echo "::error::No package.json found in $WORKING_DIRECTORY"
+            exit 1
+          fi
+
+          if [[ ! -f "$LOCKFILE_PATH" ]]; then
+            echo "::error::No pnpm lockfile found at $LOCKFILE_PATH"
+            exit 1
+          fi
+
+          if [[ "$PROFILE" == docs && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
+            echo "::error::The docs profile does not support build or end-to-end capabilities"
+            exit 1
+          fi
+
+  metadata:
+    name: pull request metadata
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: contract
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          install: false
+
+      - name: Validate pull request title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: pnpm dlx @mikode13/git-hooks@0.1.0 lint-title "$PR_TITLE"
+
+      - name: Validate source branch
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+        run: pnpm dlx @mikode13/git-hooks@0.1.0 lint-branch "$SOURCE_BRANCH"
+
+  check:
+    name: check (Node.js 24)
+    if: ${{ inputs.profile == 'node' || inputs.profile == 'package' }}
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Run project checks
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run check
+
+  test:
+    name: test (Node.js ${{ matrix.node }})
+    if: ${{ inputs.profile == 'node' || inputs.profile == 'package' }}
+    needs: contract
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 22
+          - 24
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@${{ matrix.node }}
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Run offline tests
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm test
+
+  build:
+    name: build (Node.js ${{ matrix.node }})
+    if: ${{ inputs.run_build && (inputs.profile == 'node' || inputs.profile == 'package') }}
+    needs: contract
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 22
+          - 24
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@${{ matrix.node }}
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Build project
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run build
+
+  pack:
+    name: package dry run (Node.js 24)
+    if: ${{ inputs.profile == 'package' }}
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify package contents
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run pack:check
+
+  docs:
+    name: documentation
+    if: ${{ inputs.profile == 'docs' }}
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate documentation
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run docs:check
+
+  e2e:
+    name: end-to-end (Node.js 24)
+    if: ${{ inputs.run_e2e && (inputs.profile == 'node' || inputs.profile == 'package') }}
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm exec playwright install --with-deps
+
+      - name: Run end-to-end tests
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run test:e2e
+
+  required:
+    name: required
+    if: ${{ always() }}
+    needs:
+      - contract
+      - metadata
+      - check
+      - test
+      - build
+      - pack
+      - docs
+      - e2e
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      BUILD_RESULT: ${{ needs.build.result }}
+      CHECK_RESULT: ${{ needs.check.result }}
+      CONTRACT_RESULT: ${{ needs.contract.result }}
+      DOCS_RESULT: ${{ needs.docs.result }}
+      E2E_RESULT: ${{ needs.e2e.result }}
+      EVENT_NAME: ${{ github.event_name }}
+      METADATA_RESULT: ${{ needs.metadata.result }}
+      PACK_RESULT: ${{ needs.pack.result }}
+      PROFILE: ${{ inputs.profile }}
+      RUN_BUILD: ${{ inputs.run_build }}
+      RUN_E2E: ${{ inputs.run_e2e }}
+      TEST_RESULT: ${{ needs.test.result }}
+    steps:
+      - name: Verify applicable jobs
+        shell: bash
+        run: |
+          expect_result() {
+            local job="$1"
+            local actual="$2"
+            local expected="$3"
+
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::$job finished with '$actual'; expected '$expected'"
+              return 1
+            fi
+          }
+
+          failed=false
+
+          expect_result contract "$CONTRACT_RESULT" success || failed=true
+
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            expect_result metadata "$METADATA_RESULT" success || failed=true
+          else
+            expect_result metadata "$METADATA_RESULT" skipped || failed=true
+          fi
+
+          if [[ "$PROFILE" == node || "$PROFILE" == package ]]; then
+            expect_result check "$CHECK_RESULT" success || failed=true
+            expect_result test "$TEST_RESULT" success || failed=true
+            expect_result docs "$DOCS_RESULT" skipped || failed=true
+          else
+            expect_result check "$CHECK_RESULT" skipped || failed=true
+            expect_result test "$TEST_RESULT" skipped || failed=true
+            expect_result docs "$DOCS_RESULT" success || failed=true
+          fi
+
+          if [[ "$RUN_BUILD" == true && ("$PROFILE" == node || "$PROFILE" == package) ]]; then
+            expect_result build "$BUILD_RESULT" success || failed=true
+          else
+            expect_result build "$BUILD_RESULT" skipped || failed=true
+          fi
+
+          if [[ "$PROFILE" == package ]]; then
+            expect_result pack "$PACK_RESULT" success || failed=true
+          else
+            expect_result pack "$PACK_RESULT" skipped || failed=true
+          fi
+
+          if [[ "$RUN_E2E" == true && ("$PROFILE" == node || "$PROFILE" == package) ]]; then
+            expect_result e2e "$E2E_RESULT" success || failed=true
+          else
+            expect_result e2e "$E2E_RESULT" skipped || failed=true
+          fi
+
+          if [[ "$failed" == true ]]; then
+            exit 1
+          fi

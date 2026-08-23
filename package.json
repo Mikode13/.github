@@ -1,0 +1,30 @@
+{
+	"name": "@mikode13/github-configuration",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Shared GitHub organization configuration and reusable workflows for MiKode.",
+	"license": "SEE LICENSE IN LICENSE",
+	"engines": {
+		"node": "^22.13.0 || ^24.0.0"
+	},
+	"packageManager": "pnpm@11.17.0",
+	"scripts": {
+		"preinstall": "npx only-allow pnpm",
+		"prepare": "mikode-git-hooks install",
+		"format": "prettier . --write",
+		"format:check": "prettier . --check",
+		"lint": "eslint . --max-warnings 0",
+		"lint:fix": "eslint . --fix",
+		"typecheck": "pnpm --filter @mikode13/ci-node-fixture run typecheck && pnpm --filter @mikode13/ci-package-fixture run typecheck && node --check eslint.config.js && node --check prettier.config.mjs",
+		"test": "pnpm --filter @mikode13/ci-node-fixture test && pnpm --filter @mikode13/ci-package-fixture test",
+		"check": "pnpm run format:check && pnpm run lint && pnpm run typecheck"
+	},
+	"devDependencies": {
+		"@mikode13/code-quality": "0.1.0",
+		"@mikode13/code-style": "0.1.0",
+		"@mikode13/git-hooks": "0.1.0",
+		"eslint": "10.8.0",
+		"prettier": "3.9.6"
+	}
+}
