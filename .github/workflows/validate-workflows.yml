@@ -52,7 +52,7 @@ jobs:
 
       - name: Validate workflow syntax
         run: |
-          "$RUNNER_TEMP/actionlint"
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yml workflow-templates/*.yml
 
   node:
     name: node fixture

@@ -1,0 +1,6 @@
+{
+	"name": "MiKode CI",
+	"description": "Run the required MiKode checks through the centralized reusable workflow.",
+	"iconName": "octicon check-circle",
+	"categories": ["Continuous integration", "JavaScript", "TypeScript"]
+}
