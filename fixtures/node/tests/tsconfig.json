@@ -1,0 +1,8 @@
+{
+	"extends": "@mikode13/tsconfig/node",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": ["node"]
+	},
+	"include": ["**/*.ts", "../src/**/*.ts"]
+}

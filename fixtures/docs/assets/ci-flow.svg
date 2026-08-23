@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="120" viewBox="0 0 480 120">
+  <title>MiKode CI fixture flow</title>
+  <rect x="10" y="35" width="120" height="50" rx="8" fill="#e8eefc" />
+  <rect x="175" y="35" width="130" height="50" rx="8" fill="#e8eefc" />
+  <rect x="350" y="35" width="120" height="50" rx="8" fill="#d9f2e6" />
+  <path d="M130 60h45M305 60h45" stroke="#334155" stroke-width="3" />
+  <text x="70" y="66" text-anchor="middle" font-family="sans-serif" font-size="16">Caller</text>
+  <text x="240" y="66" text-anchor="middle" font-family="sans-serif" font-size="16">Reusable CI</text>
+  <text x="410" y="66" text-anchor="middle" font-family="sans-serif" font-size="16">Required</text>
+</svg>
