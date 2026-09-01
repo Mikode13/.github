@@ -3,12 +3,36 @@ name: Reusable CI
 on:
   workflow_call:
     inputs:
+      source:
+        description: Enable the Source capability for this workflow revision.
+        default: false
+        type: boolean
+      tests:
+        description: Enable the Tests capability for this workflow revision.
+        default: false
+        type: boolean
+      build:
+        description: Enable the Build capability for this workflow revision.
+        default: false
+        type: boolean
+      package:
+        description: Enable the Package capability for this workflow revision.
+        default: false
+        type: boolean
+      documentation:
+        description: Enable the Documentation capability for this workflow revision.
+        default: false
+        type: boolean
+      end_to_end:
+        description: Enable the End-to-end capability for this workflow revision.
+        default: false
+        type: boolean
       profile:
-        description: 'Repository profile: node, package, or docs.'
-        required: true
+        description: 'Legacy repository profile: node, package, or docs.'
+        default: ''
         type: string
       working_directory:
-        description: Directory containing the project package.json.
+        description: Directory containing project files.
         default: .
         type: string
       lockfile_path:
@@ -16,11 +40,11 @@ on:
         default: pnpm-lock.yaml
         type: string
       run_build:
-        description: Run pnpm run build on Node.js 22 and 24.
+        description: Legacy profile option to add the Build capability.
         default: false
         type: boolean
       run_e2e:
-        description: Install Playwright browsers and run pnpm run test:e2e.
+        description: Legacy profile option to add the End-to-end capability.
         default: false
         type: boolean
 
@@ -31,17 +55,31 @@ jobs:
   contract:
     name: validate contract
     runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.resolve.outputs.build }}
+      documentation: ${{ steps.resolve.outputs.documentation }}
+      end_to_end: ${{ steps.resolve.outputs.end_to_end }}
+      package: ${{ steps.resolve.outputs.package }}
+      source: ${{ steps.resolve.outputs.source }}
+      tests: ${{ steps.resolve.outputs.tests }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate workflow inputs
+      - name: Resolve workflow contract
+        id: resolve
         shell: bash
         env:
+          BUILD: ${{ inputs.build }}
+          DOCUMENTATION: ${{ inputs.documentation }}
+          END_TO_END: ${{ inputs.end_to_end }}
           LOCKFILE_PATH: ${{ inputs.lockfile_path }}
+          PACKAGE: ${{ inputs.package }}
           PROFILE: ${{ inputs.profile }}
           RUN_BUILD: ${{ inputs.run_build }}
           RUN_E2E: ${{ inputs.run_e2e }}
+          SOURCE: ${{ inputs.source }}
+          TESTS: ${{ inputs.tests }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           validate_relative_path() {
@@ -54,31 +92,86 @@ jobs:
             fi
           }
 
-          case "$PROFILE" in
-            node | package | docs) ;;
-            *)
-              echo "::error::profile must be one of: node, package, docs"
+          explicit=false
+          if [[ "$SOURCE" == true || "$TESTS" == true || "$BUILD" == true || "$PACKAGE" == true || "$DOCUMENTATION" == true || "$END_TO_END" == true ]]; then
+            explicit=true
+          fi
+
+          if [[ -n "$PROFILE" && "$explicit" == true ]]; then
+            echo "::error::Use explicit capabilities or the legacy profile contract, not both"
+            exit 1
+          fi
+
+          if [[ -z "$PROFILE" && "$explicit" == false ]]; then
+            echo "::error::Enable at least one capability or provide a legacy profile"
+            exit 1
+          fi
+
+          if [[ "$explicit" == true && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
+            echo "::error::run_build and run_e2e belong to the legacy profile contract and cannot be mixed with explicit capabilities"
+            exit 1
+          fi
+
+          if [[ -n "$PROFILE" ]]; then
+            SOURCE=false
+            TESTS=false
+            BUILD=false
+            PACKAGE=false
+            DOCUMENTATION=false
+            END_TO_END=false
+
+            case "$PROFILE" in
+              node)
+                SOURCE=true
+                TESTS=true
+                ;;
+              package)
+                SOURCE=true
+                TESTS=true
+                PACKAGE=true
+                ;;
+              docs)
+                DOCUMENTATION=true
+                ;;
+              *)
+                echo "::error::profile must be one of: node, package, docs"
+                exit 1
+                ;;
+            esac
+
+            if [[ "$PROFILE" == docs && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
+              echo "::error::The docs profile does not support build or end-to-end capabilities"
               exit 1
-              ;;
-          esac
+            fi
+
+            [[ "$RUN_BUILD" == true ]] && BUILD=true
+            [[ "$RUN_E2E" == true ]] && END_TO_END=true
+          fi
 
           validate_relative_path working_directory "$WORKING_DIRECTORY"
-          validate_relative_path lockfile_path "$LOCKFILE_PATH"
 
-          if [[ ! -f "$WORKING_DIRECTORY/package.json" ]]; then
-            echo "::error::No package.json found in $WORKING_DIRECTORY"
-            exit 1
+          if [[ "$SOURCE" == true || "$TESTS" == true || "$BUILD" == true || "$PACKAGE" == true || "$END_TO_END" == true ]]; then
+            validate_relative_path lockfile_path "$LOCKFILE_PATH"
+
+            if [[ ! -f "$WORKING_DIRECTORY/package.json" ]]; then
+              echo "::error::No package.json found in $WORKING_DIRECTORY"
+              exit 1
+            fi
+
+            if [[ ! -f "$LOCKFILE_PATH" ]]; then
+              echo "::error::No pnpm lockfile found at $LOCKFILE_PATH"
+              exit 1
+            fi
           fi
 
-          if [[ ! -f "$LOCKFILE_PATH" ]]; then
-            echo "::error::No pnpm lockfile found at $LOCKFILE_PATH"
-            exit 1
-          fi
-
-          if [[ "$PROFILE" == docs && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
-            echo "::error::The docs profile does not support build or end-to-end capabilities"
-            exit 1
-          fi
+          {
+            echo "source=$SOURCE"
+            echo "tests=$TESTS"
+            echo "build=$BUILD"
+            echo "package=$PACKAGE"
+            echo "documentation=$DOCUMENTATION"
+            echo "end_to_end=$END_TO_END"
+          } >> "$GITHUB_OUTPUT"
 
   metadata:
     name: pull request metadata
@@ -106,7 +199,7 @@ jobs:
 
   check:
     name: check (Node.js 24)
-    if: ${{ inputs.profile == 'node' || inputs.profile == 'package' }}
+    if: ${{ needs.contract.outputs.source == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
@@ -133,7 +226,7 @@ jobs:
 
   test:
     name: test (Node.js ${{ matrix.node }})
-    if: ${{ inputs.profile == 'node' || inputs.profile == 'package' }}
+    if: ${{ needs.contract.outputs.tests == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     strategy:
@@ -166,7 +259,7 @@ jobs:
 
   build:
     name: build (Node.js ${{ matrix.node }})
-    if: ${{ inputs.run_build && (inputs.profile == 'node' || inputs.profile == 'package') }}
+    if: ${{ needs.contract.outputs.build == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     strategy:
@@ -199,7 +292,7 @@ jobs:
 
   pack:
     name: package dry run (Node.js 24)
-    if: ${{ inputs.profile == 'package' }}
+    if: ${{ needs.contract.outputs.package == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
@@ -226,14 +319,15 @@ jobs:
 
   docs:
     name: documentation
-    if: ${{ inputs.profile == 'docs' }}
+    if: ${{ needs.contract.outputs.documentation == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install pnpm and Node.js
+      - name: Install project documentation tooling
+        if: ${{ inputs.profile == 'docs' }}
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           version: 11.17.0
@@ -243,17 +337,69 @@ jobs:
           package-json-file: ${{ inputs.working_directory }}/package.json
           install: false
 
-      - name: Install dependencies
+      - name: Install project dependencies
+        if: ${{ inputs.profile == 'docs' }}
         working-directory: ${{ inputs.working_directory }}
         run: pnpm install --frozen-lockfile
 
-      - name: Validate documentation
+      - name: Validate legacy project documentation
+        if: ${{ inputs.profile == 'docs' }}
         working-directory: ${{ inputs.working_directory }}
         run: pnpm run docs:check
 
+      - name: Install central documentation tooling
+        if: ${{ inputs.profile == '' }}
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          install: false
+
+      - name: Validate documentation formatting and structure
+        if: ${{ inputs.profile == '' }}
+        shell: bash
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          mapfile -d '' markdown_files < <(find "$WORKING_DIRECTORY" -type f -name '*.md' -print0)
+
+          if (( ${#markdown_files[@]} == 0 )); then
+            echo "::error::Documentation capability requires at least one Markdown file"
+            exit 1
+          fi
+
+          printf '{}\n' > "$RUNNER_TEMP/prettier.json"
+          cat > "$RUNNER_TEMP/markdownlint-cli2.jsonc" <<'JSON'
+          {
+            "config": {
+              "MD010": {
+                "code_blocks": false
+              },
+              "MD013": false
+            }
+          }
+          JSON
+
+          pnpm dlx prettier@3.9.6 --config "$RUNNER_TEMP/prettier.json" --check "${markdown_files[@]}"
+          pnpm dlx markdownlint-cli2@0.23.2 --config "$RUNNER_TEMP/markdownlint-cli2.jsonc" "${markdown_files[@]}"
+
+      - name: Validate internal documentation links
+        if: ${{ inputs.profile == '' }}
+        shell: bash
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          tools="$RUNNER_TEMP/remark-tools"
+          mkdir -p "$tools"
+          printf '{"private":true}\n' > "$tools/package.json"
+          pnpm --dir "$tools" add --save-exact remark-cli@12.0.1 remark-validate-links@13.1.0
+
+          cd "$tools"
+          pnpm exec remark --quiet --frail --use remark-validate-links "$GITHUB_WORKSPACE/$WORKING_DIRECTORY"
+
   e2e:
     name: end-to-end (Node.js 24)
-    if: ${{ inputs.run_e2e && (inputs.profile == 'node' || inputs.profile == 'package') }}
+    if: ${{ needs.contract.outputs.end_to_end == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
@@ -297,17 +443,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     env:
+      BUILD_ENABLED: ${{ needs.contract.outputs.build }}
       BUILD_RESULT: ${{ needs.build.result }}
       CHECK_RESULT: ${{ needs.check.result }}
       CONTRACT_RESULT: ${{ needs.contract.result }}
+      DOCS_ENABLED: ${{ needs.contract.outputs.documentation }}
       DOCS_RESULT: ${{ needs.docs.result }}
+      E2E_ENABLED: ${{ needs.contract.outputs.end_to_end }}
       E2E_RESULT: ${{ needs.e2e.result }}
       EVENT_NAME: ${{ github.event_name }}
       METADATA_RESULT: ${{ needs.metadata.result }}
+      PACKAGE_ENABLED: ${{ needs.contract.outputs.package }}
       PACK_RESULT: ${{ needs.pack.result }}
-      PROFILE: ${{ inputs.profile }}
-      RUN_BUILD: ${{ inputs.run_build }}
-      RUN_E2E: ${{ inputs.run_e2e }}
+      SOURCE_ENABLED: ${{ needs.contract.outputs.source }}
+      TESTS_ENABLED: ${{ needs.contract.outputs.tests }}
       TEST_RESULT: ${{ needs.test.result }}
     steps:
       - name: Verify applicable jobs
@@ -324,6 +473,18 @@ jobs:
             fi
           }
 
+          expect_capability() {
+            local job="$1"
+            local enabled="$2"
+            local actual="$3"
+
+            if [[ "$enabled" == true ]]; then
+              expect_result "$job" "$actual" success
+            else
+              expect_result "$job" "$actual" skipped
+            fi
+          }
+
           failed=false
 
           expect_result contract "$CONTRACT_RESULT" success || failed=true
@@ -334,33 +495,12 @@ jobs:
             expect_result metadata "$METADATA_RESULT" skipped || failed=true
           fi
 
-          if [[ "$PROFILE" == node || "$PROFILE" == package ]]; then
-            expect_result check "$CHECK_RESULT" success || failed=true
-            expect_result test "$TEST_RESULT" success || failed=true
-            expect_result docs "$DOCS_RESULT" skipped || failed=true
-          else
-            expect_result check "$CHECK_RESULT" skipped || failed=true
-            expect_result test "$TEST_RESULT" skipped || failed=true
-            expect_result docs "$DOCS_RESULT" success || failed=true
-          fi
-
-          if [[ "$RUN_BUILD" == true && ("$PROFILE" == node || "$PROFILE" == package) ]]; then
-            expect_result build "$BUILD_RESULT" success || failed=true
-          else
-            expect_result build "$BUILD_RESULT" skipped || failed=true
-          fi
-
-          if [[ "$PROFILE" == package ]]; then
-            expect_result pack "$PACK_RESULT" success || failed=true
-          else
-            expect_result pack "$PACK_RESULT" skipped || failed=true
-          fi
-
-          if [[ "$RUN_E2E" == true && ("$PROFILE" == node || "$PROFILE" == package) ]]; then
-            expect_result e2e "$E2E_RESULT" success || failed=true
-          else
-            expect_result e2e "$E2E_RESULT" skipped || failed=true
-          fi
+          expect_capability check "$SOURCE_ENABLED" "$CHECK_RESULT" || failed=true
+          expect_capability test "$TESTS_ENABLED" "$TEST_RESULT" || failed=true
+          expect_capability build "$BUILD_ENABLED" "$BUILD_RESULT" || failed=true
+          expect_capability pack "$PACKAGE_ENABLED" "$PACK_RESULT" || failed=true
+          expect_capability docs "$DOCS_ENABLED" "$DOCS_RESULT" || failed=true
+          expect_capability e2e "$E2E_ENABLED" "$E2E_RESULT" || failed=true
 
           if [[ "$failed" == true ]]; then
             exit 1

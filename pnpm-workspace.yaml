@@ -1,5 +1,6 @@
 packages:
   - fixtures/*
+  - '!fixtures/e2e'
 
 allowBuilds:
   '@mikode13/code-quality': false
