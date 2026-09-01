@@ -385,8 +385,17 @@ jobs:
 
       - name: Validate internal documentation links
         if: ${{ inputs.profile == '' }}
-        working-directory: ${{ inputs.working_directory }}
-        run: pnpm --package=remark-cli@12.0.1 --package=remark-validate-links@13.1.0 dlx remark --quiet --frail --use remark-validate-links .
+        shell: bash
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          tools="$RUNNER_TEMP/remark-tools"
+          mkdir -p "$tools"
+          printf '{"private":true}\n' > "$tools/package.json"
+          pnpm --dir "$tools" add --save-exact remark-cli@12.0.1 remark-validate-links@13.1.0
+
+          cd "$tools"
+          pnpm exec remark --quiet --frail --use remark-validate-links "$GITHUB_WORKSPACE/$WORKING_DIRECTORY"
 
   e2e:
     name: end-to-end (Node.js 24)
