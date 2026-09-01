@@ -3,12 +3,16 @@ name: Reusable CI
 on:
   workflow_call:
     inputs:
+      capabilities:
+        description: 'Comma-separated capabilities: source, tests, build, package, documentation, end-to-end.'
+        default: ''
+        type: string
       profile:
-        description: 'Repository profile: node, package, or docs.'
-        required: true
+        description: 'Legacy repository profile: node, package, or docs.'
+        default: ''
         type: string
       working_directory:
-        description: Directory containing the project package.json.
+        description: Directory containing project files.
         default: .
         type: string
       lockfile_path:
@@ -16,11 +20,11 @@ on:
         default: pnpm-lock.yaml
         type: string
       run_build:
-        description: Run pnpm run build on Node.js 22 and 24.
+        description: Legacy profile option to add the Build capability.
         default: false
         type: boolean
       run_e2e:
-        description: Install Playwright browsers and run pnpm run test:e2e.
+        description: Legacy profile option to add the End-to-end capability.
         default: false
         type: boolean
 
@@ -31,13 +35,22 @@ jobs:
   contract:
     name: validate contract
     runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.resolve.outputs.build }}
+      documentation: ${{ steps.resolve.outputs.documentation }}
+      end_to_end: ${{ steps.resolve.outputs.end_to_end }}
+      package: ${{ steps.resolve.outputs.package }}
+      source: ${{ steps.resolve.outputs.source }}
+      tests: ${{ steps.resolve.outputs.tests }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate workflow inputs
+      - name: Resolve workflow contract
+        id: resolve
         shell: bash
         env:
+          CAPABILITIES: ${{ inputs.capabilities }}
           LOCKFILE_PATH: ${{ inputs.lockfile_path }}
           PROFILE: ${{ inputs.profile }}
           RUN_BUILD: ${{ inputs.run_build }}
@@ -54,31 +67,128 @@ jobs:
             fi
           }
 
-          case "$PROFILE" in
-            node | package | docs) ;;
-            *)
-              echo "::error::profile must be one of: node, package, docs"
+          trim() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "$value"
+          }
+
+          source=false
+          tests=false
+          build=false
+          package=false
+          documentation=false
+          end_to_end=false
+
+          enable_capability() {
+            case "$1" in
+              source) source=true ;;
+              tests) tests=true ;;
+              build) build=true ;;
+              package) package=true ;;
+              documentation) documentation=true ;;
+              end-to-end) end_to_end=true ;;
+              *)
+                echo "::error::Unsupported capability '$1'. Supported capabilities: source, tests, build, package, documentation, end-to-end"
+                exit 1
+                ;;
+            esac
+          }
+
+          if [[ -n "$CAPABILITIES" && -n "$PROFILE" ]]; then
+            echo "::error::Use capabilities or the legacy profile contract, not both"
+            exit 1
+          fi
+
+          if [[ -z "$CAPABILITIES" && -z "$PROFILE" ]]; then
+            echo "::error::Either capabilities or profile must be provided"
+            exit 1
+          fi
+
+          if [[ -n "$CAPABILITIES" ]]; then
+            if [[ "$RUN_BUILD" == true || "$RUN_E2E" == true ]]; then
+              echo "::error::run_build and run_e2e are legacy profile options and cannot be combined with capabilities"
               exit 1
-              ;;
-          esac
+            fi
+
+            seen='|'
+            IFS=',' read -ra requested <<< "$CAPABILITIES"
+
+            for raw_capability in "${requested[@]}"; do
+              capability="$(trim "$raw_capability")"
+
+              if [[ -z "$capability" ]]; then
+                echo "::error::capabilities contains an empty entry"
+                exit 1
+              fi
+
+              if [[ "$seen" == *"|$capability|"* ]]; then
+                echo "::error::Capability '$capability' is listed more than once"
+                exit 1
+              fi
+
+              enable_capability "$capability"
+              seen+="$capability|"
+            done
+          else
+            case "$PROFILE" in
+              node)
+                source=true
+                tests=true
+                ;;
+              package)
+                source=true
+                tests=true
+                package=true
+                ;;
+              docs)
+                documentation=true
+                ;;
+              *)
+                echo "::error::profile must be one of: node, package, docs"
+                exit 1
+                ;;
+            esac
+
+            if [[ "$PROFILE" == docs && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
+              echo "::error::The docs profile does not support build or end-to-end capabilities"
+              exit 1
+            fi
+
+            if [[ "$RUN_BUILD" == true ]]; then
+              build=true
+            fi
+
+            if [[ "$RUN_E2E" == true ]]; then
+              end_to_end=true
+            fi
+          fi
 
           validate_relative_path working_directory "$WORKING_DIRECTORY"
-          validate_relative_path lockfile_path "$LOCKFILE_PATH"
 
-          if [[ ! -f "$WORKING_DIRECTORY/package.json" ]]; then
-            echo "::error::No package.json found in $WORKING_DIRECTORY"
-            exit 1
+          if [[ "$source" == true || "$tests" == true || "$build" == true || "$package" == true || "$end_to_end" == true ]]; then
+            validate_relative_path lockfile_path "$LOCKFILE_PATH"
+
+            if [[ ! -f "$WORKING_DIRECTORY/package.json" ]]; then
+              echo "::error::No package.json found in $WORKING_DIRECTORY"
+              exit 1
+            fi
+
+            if [[ ! -f "$LOCKFILE_PATH" ]]; then
+              echo "::error::No pnpm lockfile found at $LOCKFILE_PATH"
+              exit 1
+            fi
           fi
 
-          if [[ ! -f "$LOCKFILE_PATH" ]]; then
-            echo "::error::No pnpm lockfile found at $LOCKFILE_PATH"
-            exit 1
-          fi
-
-          if [[ "$PROFILE" == docs && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
-            echo "::error::The docs profile does not support build or end-to-end capabilities"
-            exit 1
-          fi
+          {
+            echo "source=$source"
+            echo "tests=$tests"
+            echo "build=$build"
+            echo "package=$package"
+            echo "documentation=$documentation"
+            echo "end_to_end=$end_to_end"
+          } >> "$GITHUB_OUTPUT"
 
   metadata:
     name: pull request metadata
