@@ -71,11 +71,28 @@ jobs:
       run_build: true
 
   docs:
-    name: documentation fixture
+    name: legacy documentation fixture
     uses: ./.github/workflows/ci.yml
     with:
       profile: docs
       working_directory: fixtures/docs
+
+  capabilities:
+    name: explicit capability fixture
+    uses: ./.github/workflows/ci.yml
+    with:
+      source: true
+      tests: true
+      build: true
+      package: true
+      working_directory: fixtures/package
+
+  docs_content:
+    name: content-only documentation fixture
+    uses: ./.github/workflows/ci.yml
+    with:
+      documentation: true
+      working_directory: fixtures/docs-content
 
   required:
     name: required
@@ -85,9 +102,13 @@ jobs:
       - node
       - package
       - docs
+      - capabilities
+      - docs_content
     runs-on: ubuntu-latest
     permissions: {}
     env:
+      CAPABILITIES_RESULT: ${{ needs.capabilities.result }}
+      DOCS_CONTENT_RESULT: ${{ needs.docs_content.result }}
       DOCS_RESULT: ${{ needs.docs.result }}
       NODE_RESULT: ${{ needs.node.result }}
       PACKAGE_RESULT: ${{ needs.package.result }}
@@ -102,7 +123,9 @@ jobs:
             "static:$STATIC_RESULT" \
             "node:$NODE_RESULT" \
             "package:$PACKAGE_RESULT" \
-            "docs:$DOCS_RESULT"
+            "docs:$DOCS_RESULT" \
+            "capabilities:$CAPABILITIES_RESULT" \
+            "docs-content:$DOCS_CONTENT_RESULT"
           do
             job="${result%%:*}"
             status="${result#*:}"
