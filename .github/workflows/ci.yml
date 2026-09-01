@@ -3,10 +3,30 @@ name: Reusable CI
 on:
   workflow_call:
     inputs:
-      capabilities:
-        description: 'Comma-separated capabilities: source, tests, build, package, documentation, end-to-end.'
-        default: ''
-        type: string
+      source:
+        description: Enable the Source capability for this workflow revision.
+        default: false
+        type: boolean
+      tests:
+        description: Enable the Tests capability for this workflow revision.
+        default: false
+        type: boolean
+      build:
+        description: Enable the Build capability for this workflow revision.
+        default: false
+        type: boolean
+      package:
+        description: Enable the Package capability for this workflow revision.
+        default: false
+        type: boolean
+      documentation:
+        description: Enable the Documentation capability for this workflow revision.
+        default: false
+        type: boolean
+      end_to_end:
+        description: Enable the End-to-end capability for this workflow revision.
+        default: false
+        type: boolean
       profile:
         description: 'Legacy repository profile: node, package, or docs.'
         default: ''
@@ -50,11 +70,16 @@ jobs:
         id: resolve
         shell: bash
         env:
-          CAPABILITIES: ${{ inputs.capabilities }}
+          BUILD: ${{ inputs.build }}
+          DOCUMENTATION: ${{ inputs.documentation }}
+          END_TO_END: ${{ inputs.end_to_end }}
           LOCKFILE_PATH: ${{ inputs.lockfile_path }}
+          PACKAGE: ${{ inputs.package }}
           PROFILE: ${{ inputs.profile }}
           RUN_BUILD: ${{ inputs.run_build }}
           RUN_E2E: ${{ inputs.run_e2e }}
+          SOURCE: ${{ inputs.source }}
+          TESTS: ${{ inputs.tests }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           validate_relative_path() {
@@ -67,83 +92,46 @@ jobs:
             fi
           }
 
-          trim() {
-            local value="$1"
-            value="${value#"${value%%[![:space:]]*}"}"
-            value="${value%"${value##*[![:space:]]}"}"
-            printf '%s' "$value"
-          }
+          explicit=false
+          if [[ "$SOURCE" == true || "$TESTS" == true || "$BUILD" == true || "$PACKAGE" == true || "$DOCUMENTATION" == true || "$END_TO_END" == true ]]; then
+            explicit=true
+          fi
 
-          source=false
-          tests=false
-          build=false
-          package=false
-          documentation=false
-          end_to_end=false
-
-          enable_capability() {
-            case "$1" in
-              source) source=true ;;
-              tests) tests=true ;;
-              build) build=true ;;
-              package) package=true ;;
-              documentation) documentation=true ;;
-              end-to-end) end_to_end=true ;;
-              *)
-                echo "::error::Unsupported capability '$1'. Supported capabilities: source, tests, build, package, documentation, end-to-end"
-                exit 1
-                ;;
-            esac
-          }
-
-          if [[ -n "$CAPABILITIES" && -n "$PROFILE" ]]; then
-            echo "::error::Use capabilities or the legacy profile contract, not both"
+          if [[ -n "$PROFILE" && "$explicit" == true ]]; then
+            echo "::error::Use explicit capabilities or the legacy profile contract, not both"
             exit 1
           fi
 
-          if [[ -z "$CAPABILITIES" && -z "$PROFILE" ]]; then
-            echo "::error::Either capabilities or profile must be provided"
+          if [[ -z "$PROFILE" && "$explicit" == false ]]; then
+            echo "::error::Enable at least one capability or provide a legacy profile"
             exit 1
           fi
 
-          if [[ -n "$CAPABILITIES" ]]; then
-            if [[ "$RUN_BUILD" == true || "$RUN_E2E" == true ]]; then
-              echo "::error::run_build and run_e2e are legacy profile options and cannot be combined with capabilities"
-              exit 1
-            fi
+          if [[ "$explicit" == true && ("$RUN_BUILD" == true || "$RUN_E2E" == true) ]]; then
+            echo "::error::run_build and run_e2e belong to the legacy profile contract and cannot be mixed with explicit capabilities"
+            exit 1
+          fi
 
-            seen='|'
-            IFS=',' read -ra requested <<< "$CAPABILITIES"
+          if [[ -n "$PROFILE" ]]; then
+            SOURCE=false
+            TESTS=false
+            BUILD=false
+            PACKAGE=false
+            DOCUMENTATION=false
+            END_TO_END=false
 
-            for raw_capability in "${requested[@]}"; do
-              capability="$(trim "$raw_capability")"
-
-              if [[ -z "$capability" ]]; then
-                echo "::error::capabilities contains an empty entry"
-                exit 1
-              fi
-
-              if [[ "$seen" == *"|$capability|"* ]]; then
-                echo "::error::Capability '$capability' is listed more than once"
-                exit 1
-              fi
-
-              enable_capability "$capability"
-              seen+="$capability|"
-            done
-          else
             case "$PROFILE" in
               node)
-                source=true
-                tests=true
+                SOURCE=true
+                TESTS=true
                 ;;
               package)
-                source=true
-                tests=true
-                package=true
+                SOURCE=true
+                TESTS=true
+                PACKAGE=true
                 ;;
               docs)
-                documentation=true
+                DOCUMENTATION=true
                 ;;
               *)
                 echo "::error::profile must be one of: node, package, docs"
@@ -156,18 +144,13 @@ jobs:
               exit 1
             fi
 
-            if [[ "$RUN_BUILD" == true ]]; then
-              build=true
-            fi
-
-            if [[ "$RUN_E2E" == true ]]; then
-              end_to_end=true
-            fi
+            [[ "$RUN_BUILD" == true ]] && BUILD=true
+            [[ "$RUN_E2E" == true ]] && END_TO_END=true
           fi
 
           validate_relative_path working_directory "$WORKING_DIRECTORY"
 
-          if [[ "$source" == true || "$tests" == true || "$build" == true || "$package" == true || "$end_to_end" == true ]]; then
+          if [[ "$SOURCE" == true || "$TESTS" == true || "$BUILD" == true || "$PACKAGE" == true || "$END_TO_END" == true ]]; then
             validate_relative_path lockfile_path "$LOCKFILE_PATH"
 
             if [[ ! -f "$WORKING_DIRECTORY/package.json" ]]; then
@@ -182,12 +165,12 @@ jobs:
           fi
 
           {
-            echo "source=$source"
-            echo "tests=$tests"
-            echo "build=$build"
-            echo "package=$package"
-            echo "documentation=$documentation"
-            echo "end_to_end=$end_to_end"
+            echo "source=$SOURCE"
+            echo "tests=$TESTS"
+            echo "build=$BUILD"
+            echo "package=$PACKAGE"
+            echo "documentation=$DOCUMENTATION"
+            echo "end_to_end=$END_TO_END"
           } >> "$GITHUB_OUTPUT"
 
   metadata:
@@ -216,7 +199,7 @@ jobs:
 
   check:
     name: check (Node.js 24)
-    if: ${{ inputs.profile == 'node' || inputs.profile == 'package' }}
+    if: ${{ needs.contract.outputs.source == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
@@ -243,7 +226,7 @@ jobs:
 
   test:
     name: test (Node.js ${{ matrix.node }})
-    if: ${{ inputs.profile == 'node' || inputs.profile == 'package' }}
+    if: ${{ needs.contract.outputs.tests == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     strategy:
@@ -276,7 +259,7 @@ jobs:
 
   build:
     name: build (Node.js ${{ matrix.node }})
-    if: ${{ inputs.run_build && (inputs.profile == 'node' || inputs.profile == 'package') }}
+    if: ${{ needs.contract.outputs.build == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     strategy:
@@ -309,7 +292,7 @@ jobs:
 
   pack:
     name: package dry run (Node.js 24)
-    if: ${{ inputs.profile == 'package' }}
+    if: ${{ needs.contract.outputs.package == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
@@ -336,14 +319,15 @@ jobs:
 
   docs:
     name: documentation
-    if: ${{ inputs.profile == 'docs' }}
+    if: ${{ needs.contract.outputs.documentation == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install pnpm and Node.js
+      - name: Install project documentation tooling
+        if: ${{ inputs.profile == 'docs' }}
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           version: 11.17.0
@@ -353,17 +337,48 @@ jobs:
           package-json-file: ${{ inputs.working_directory }}/package.json
           install: false
 
-      - name: Install dependencies
+      - name: Install project dependencies
+        if: ${{ inputs.profile == 'docs' }}
         working-directory: ${{ inputs.working_directory }}
         run: pnpm install --frozen-lockfile
 
-      - name: Validate documentation
+      - name: Validate legacy project documentation
+        if: ${{ inputs.profile == 'docs' }}
         working-directory: ${{ inputs.working_directory }}
         run: pnpm run docs:check
 
+      - name: Install central documentation tooling
+        if: ${{ inputs.profile == '' }}
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          install: false
+
+      - name: Validate documentation formatting and structure
+        if: ${{ inputs.profile == '' }}
+        shell: bash
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          mapfile -d '' markdown_files < <(find "$WORKING_DIRECTORY" -type f -name '*.md' -print0)
+
+          if (( ${#markdown_files[@]} == 0 )); then
+            echo "::error::Documentation capability requires at least one Markdown file"
+            exit 1
+          fi
+
+          pnpm dlx prettier@3.9.6 --check "${markdown_files[@]}"
+          pnpm dlx markdownlint-cli2@0.23.2 "${markdown_files[@]}"
+
+      - name: Validate internal documentation links
+        if: ${{ inputs.profile == '' }}
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm --package=remark-cli@12.0.1 --package=remark-validate-links@13.1.0 dlx remark --quiet --frail --use remark-validate-links .
+
   e2e:
     name: end-to-end (Node.js 24)
-    if: ${{ inputs.run_e2e && (inputs.profile == 'node' || inputs.profile == 'package') }}
+    if: ${{ needs.contract.outputs.end_to_end == 'true' }}
     needs: contract
     runs-on: ubuntu-latest
     steps:
@@ -407,17 +422,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     env:
+      BUILD_ENABLED: ${{ needs.contract.outputs.build }}
       BUILD_RESULT: ${{ needs.build.result }}
       CHECK_RESULT: ${{ needs.check.result }}
       CONTRACT_RESULT: ${{ needs.contract.result }}
+      DOCS_ENABLED: ${{ needs.contract.outputs.documentation }}
       DOCS_RESULT: ${{ needs.docs.result }}
+      E2E_ENABLED: ${{ needs.contract.outputs.end_to_end }}
       E2E_RESULT: ${{ needs.e2e.result }}
       EVENT_NAME: ${{ github.event_name }}
       METADATA_RESULT: ${{ needs.metadata.result }}
+      PACKAGE_ENABLED: ${{ needs.contract.outputs.package }}
       PACK_RESULT: ${{ needs.pack.result }}
-      PROFILE: ${{ inputs.profile }}
-      RUN_BUILD: ${{ inputs.run_build }}
-      RUN_E2E: ${{ inputs.run_e2e }}
+      SOURCE_ENABLED: ${{ needs.contract.outputs.source }}
+      TESTS_ENABLED: ${{ needs.contract.outputs.tests }}
       TEST_RESULT: ${{ needs.test.result }}
     steps:
       - name: Verify applicable jobs
@@ -434,6 +452,18 @@ jobs:
             fi
           }
 
+          expect_capability() {
+            local job="$1"
+            local enabled="$2"
+            local actual="$3"
+
+            if [[ "$enabled" == true ]]; then
+              expect_result "$job" "$actual" success
+            else
+              expect_result "$job" "$actual" skipped
+            fi
+          }
+
           failed=false
 
           expect_result contract "$CONTRACT_RESULT" success || failed=true
@@ -444,33 +474,12 @@ jobs:
             expect_result metadata "$METADATA_RESULT" skipped || failed=true
           fi
 
-          if [[ "$PROFILE" == node || "$PROFILE" == package ]]; then
-            expect_result check "$CHECK_RESULT" success || failed=true
-            expect_result test "$TEST_RESULT" success || failed=true
-            expect_result docs "$DOCS_RESULT" skipped || failed=true
-          else
-            expect_result check "$CHECK_RESULT" skipped || failed=true
-            expect_result test "$TEST_RESULT" skipped || failed=true
-            expect_result docs "$DOCS_RESULT" success || failed=true
-          fi
-
-          if [[ "$RUN_BUILD" == true && ("$PROFILE" == node || "$PROFILE" == package) ]]; then
-            expect_result build "$BUILD_RESULT" success || failed=true
-          else
-            expect_result build "$BUILD_RESULT" skipped || failed=true
-          fi
-
-          if [[ "$PROFILE" == package ]]; then
-            expect_result pack "$PACK_RESULT" success || failed=true
-          else
-            expect_result pack "$PACK_RESULT" skipped || failed=true
-          fi
-
-          if [[ "$RUN_E2E" == true && ("$PROFILE" == node || "$PROFILE" == package) ]]; then
-            expect_result e2e "$E2E_RESULT" success || failed=true
-          else
-            expect_result e2e "$E2E_RESULT" skipped || failed=true
-          fi
+          expect_capability check "$SOURCE_ENABLED" "$CHECK_RESULT" || failed=true
+          expect_capability test "$TESTS_ENABLED" "$TEST_RESULT" || failed=true
+          expect_capability build "$BUILD_ENABLED" "$BUILD_RESULT" || failed=true
+          expect_capability pack "$PACKAGE_ENABLED" "$PACK_RESULT" || failed=true
+          expect_capability docs "$DOCS_ENABLED" "$DOCS_RESULT" || failed=true
+          expect_capability e2e "$E2E_ENABLED" "$E2E_RESULT" || failed=true
 
           if [[ "$failed" == true ]]; then
             exit 1
