@@ -16,16 +16,14 @@ the [MiKode continuous integration standard](https://github.com/Mikode13/enginee
 
 This workflow revision supports these independently composable capabilities:
 
-| Capability      | Current implementation                                           |
-| --------------- | ---------------------------------------------------------------- |
-| `source`        | `pnpm run check` on Node.js 24                                   |
-| `tests`         | `pnpm test` on Node.js 22 and 24                                 |
-| `build`         | `pnpm run build` on Node.js 22 and 24                            |
-| `package`       | `pnpm run pack:check` on Node.js 24                              |
-| `documentation` | Central Markdown formatting, structure, and internal-link checks |
-| `end_to_end`    | Playwright browser installation and `pnpm run test:e2e`          |
+- `source` runs `pnpm run check` on Node.js 24.
+- `tests` runs `pnpm test` on Node.js 22 and 24.
+- `build` runs `pnpm run build` on Node.js 22 and 24.
+- `package` runs `pnpm run pack:check` on Node.js 24.
+- `documentation` runs central Markdown formatting, structure, and internal-link checks.
+- `end_to_end` installs Playwright browsers and runs `pnpm run test:e2e`.
 
-The catalogue belongs to this immutable workflow revision; future reviewed revisions may add
+The catalogue belongs to this immutable workflow revision. Future reviewed revisions may add
 new capabilities. Enabling one capability does not implicitly enable another.
 
 A new caller selects every applicable capability explicitly:
@@ -50,15 +48,13 @@ reusable-workflow job `CI`, which gives the organization ruleset the stable stat
 
 Existing SHA-pinned callers remain compatible with the previous profile contract:
 
-| Profile   | Capability expansion               |
-| --------- | ---------------------------------- |
-| `node`    | Source + Tests                     |
-| `package` | Source + Tests + Package           |
-| `docs`    | Documentation                      |
+- `node` expands to Source + Tests.
+- `package` expands to Source + Tests + Package.
+- `docs` expands to Documentation.
+- `run_build: true` adds Build to a compatible profile.
+- `run_e2e: true` adds End-to-end to a compatible profile.
 
-`run_build: true` adds Build and `run_e2e: true` adds End-to-end to compatible legacy
-profiles. Callers must use either explicit capability inputs or the legacy profile contract,
-not both.
+Callers must use either explicit capability inputs or the legacy profile contract, not both.
 
 ### Caller contract
 
@@ -87,7 +83,7 @@ rollback target.
 
 ## Developing the workflows
 
-The repository validates workflow syntax and exercises both retained profiles and explicit
+The repository validates workflow syntax and exercises retained profiles and explicit
 capability composition with contract fixtures:
 
 ```sh
