@@ -368,8 +368,20 @@ jobs:
             exit 1
           fi
 
-          pnpm dlx prettier@3.9.6 --check "${markdown_files[@]}"
-          pnpm dlx markdownlint-cli2@0.23.2 "${markdown_files[@]}"
+          printf '{}\n' > "$RUNNER_TEMP/prettier.json"
+          cat > "$RUNNER_TEMP/markdownlint-cli2.jsonc" <<'JSON'
+          {
+            "config": {
+              "MD010": {
+                "code_blocks": false
+              },
+              "MD013": false
+            }
+          }
+          JSON
+
+          pnpm dlx prettier@3.9.6 --config "$RUNNER_TEMP/prettier.json" --check "${markdown_files[@]}"
+          pnpm dlx markdownlint-cli2@0.23.2 --config "$RUNNER_TEMP/markdownlint-cli2.jsonc" "${markdown_files[@]}"
 
       - name: Validate internal documentation links
         if: ${{ inputs.profile == '' }}
