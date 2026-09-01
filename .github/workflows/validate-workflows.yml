@@ -94,6 +94,14 @@ jobs:
       documentation: true
       working_directory: fixtures/docs-content
 
+  end_to_end:
+    name: end-to-end fixture
+    uses: ./.github/workflows/ci.yml
+    with:
+      end_to_end: true
+      working_directory: fixtures/e2e
+      lockfile_path: fixtures/e2e/pnpm-lock.yaml
+
   required:
     name: required
     if: ${{ always() }}
@@ -104,12 +112,14 @@ jobs:
       - docs
       - capabilities
       - docs_content
+      - end_to_end
     runs-on: ubuntu-latest
     permissions: {}
     env:
       CAPABILITIES_RESULT: ${{ needs.capabilities.result }}
       DOCS_CONTENT_RESULT: ${{ needs.docs_content.result }}
       DOCS_RESULT: ${{ needs.docs.result }}
+      E2E_RESULT: ${{ needs.end_to_end.result }}
       NODE_RESULT: ${{ needs.node.result }}
       PACKAGE_RESULT: ${{ needs.package.result }}
       STATIC_RESULT: ${{ needs.static.result }}
@@ -125,7 +135,8 @@ jobs:
             "package:$PACKAGE_RESULT" \
             "docs:$DOCS_RESULT" \
             "capabilities:$CAPABILITIES_RESULT" \
-            "docs-content:$DOCS_CONTENT_RESULT"
+            "docs-content:$DOCS_CONTENT_RESULT" \
+            "end-to-end:$E2E_RESULT"
           do
             job="${result%%:*}"
             status="${result#*:}"
