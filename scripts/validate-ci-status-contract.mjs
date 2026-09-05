@@ -31,9 +31,7 @@ const readJobName = (workflow, job) => {
 		.slice(jobStart + 1)
 		.findIndex(line => /^  [a-zA-Z0-9_-]+:$/.test(line));
 	const jobEnd = nextJobOffset === -1 ? lines.length : jobStart + nextJobOffset + 1;
-	const nameLine = lines
-		.slice(jobStart + 1, jobEnd)
-		.find(line => line.startsWith('    name:'));
+	const nameLine = lines.slice(jobStart + 1, jobEnd).find(line => line.startsWith('    name:'));
 
 	assert.ok(nameLine, `Job '${job}' does not define a name`);
 
