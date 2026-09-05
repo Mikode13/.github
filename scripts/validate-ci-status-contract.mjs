@@ -29,7 +29,7 @@ const readJobName = (workflow, job) => {
 
 	const nextJobOffset = lines
 		.slice(jobStart + 1)
-		.findIndex(line => /^  [a-zA-Z0-9_-]+:$/.test(line));
+		.findIndex(line => /^ {2}[a-zA-Z0-9_-]+:$/.test(line));
 	const jobEnd = nextJobOffset === -1 ? lines.length : jobStart + nextJobOffset + 1;
 	const nameLine = lines.slice(jobStart + 1, jobEnd).find(line => line.startsWith('    name:'));
 
