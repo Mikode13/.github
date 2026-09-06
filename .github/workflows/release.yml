@@ -1,0 +1,275 @@
+name: Reusable release
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: >-
+          Exact commit SHA to release. The caller must have already established that this
+          SHA belongs to its default branch (for example from
+          github.event.workflow_run.head_sha, or an operator-supplied SHA for manual
+          recovery) -- this workflow independently re-verifies it regardless.
+        required: true
+        type: string
+      working_directory:
+        description: Directory containing the project package.json.
+        default: .
+        type: string
+      lockfile_path:
+        description: Path to pnpm-lock.yaml, relative to the repository root.
+        default: pnpm-lock.yaml
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    name: authorize release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    outputs:
+      should-release: ${{ steps.verify.outputs.should-release }}
+    steps:
+      - name: Validate workflow inputs
+        shell: bash
+        env:
+          LOCKFILE_PATH: ${{ inputs.lockfile_path }}
+          SHA: ${{ inputs.sha }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::sha must be a full 40-character commit SHA, got: $SHA"
+            exit 1
+          fi
+
+          if [[ -z "$WORKING_DIRECTORY" || "$WORKING_DIRECTORY" == /* || "$WORKING_DIRECTORY" =~ (^|/)\.\.(/|$) ]]; then
+            echo "::error::working_directory must be a repository-relative path without '..' segments"
+            exit 1
+          fi
+
+          if [[ -z "$LOCKFILE_PATH" || "$LOCKFILE_PATH" == /* || "$LOCKFILE_PATH" =~ (^|/)\.\.(/|$) ]]; then
+            echo "::error::lockfile_path must be a repository-relative path without '..' segments"
+            exit 1
+          fi
+
+      - name: Verify the commit has a successful CI / required check on main
+        id: verify
+        shell: node {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+
+          const sha = process.env.SHA;
+          const repository = process.env.REPOSITORY;
+
+          function ghApiGet(path, params) {
+            const args = ['api', '--method', 'GET', path];
+            for (const [key, value] of Object.entries(params)) {
+              args.push('-f', `${key}=${value}`);
+            }
+            return JSON.parse(execFileSync('gh', args, { encoding: 'utf8' }));
+          }
+
+          // The workflow name is intentionally not configurable: a caller choosing which
+          // workflow's success gates its own release would defeat the point of the gate.
+          const runsResponse = ghApiGet(`repos/${repository}/actions/runs`, {
+            head_sha: sha,
+            branch: 'main',
+            event: 'push',
+            status: 'completed',
+          });
+
+          const run = (runsResponse.workflow_runs ?? []).find(
+            candidate =>
+              candidate.name === 'CI' &&
+              candidate.conclusion === 'success' &&
+              candidate.head_sha === sha,
+          );
+
+          if (!run) {
+            console.error(`::error::No successful push CI run found on main for ${sha}`);
+            process.exit(1);
+          }
+
+          // A successful workflow run is not the same guarantee as the exact status that
+          // gates merges. Verify the 'CI / required' check itself, in the same check
+          // suite as the run just confirmed.
+          const checkRunsResponse = ghApiGet(`repos/${repository}/commits/${sha}/check-runs`, {});
+
+          const requiredCheck = (checkRunsResponse.check_runs ?? []).find(
+            checkRun =>
+              checkRun.name === 'CI / required' &&
+              checkRun.conclusion === 'success' &&
+              checkRun.check_suite?.id === run.check_suite_id,
+          );
+
+          if (!requiredCheck) {
+            console.error(`::error::No successful 'CI / required' check found for ${sha}`);
+            process.exit(1);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'should-release=true\n');
+
+  release:
+    name: release
+    needs: authorize
+    if: ${{ needs.authorize.outputs.should-release == 'true' }}
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository at the released commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+
+      - name: Verify the package is set up for automated releases
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+
+          if [[ "$version" != "0.0.0-development" ]]; then
+            echo "::error::package.json version must be 0.0.0-development (semantic-release sets the real version); found $version"
+            exit 1
+          fi
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install a recent npm supporting Trusted Publishing
+        run: npm install --global npm@11.19.1
+
+      - name: Configure the npm registry
+        # Explicit rather than relying on npm's default: npm's own docs are not fully
+        # conclusive on whether OIDC trusted publishing engages without this being set.
+        run: npm config set registry "https://registry.npmjs.org/"
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the package
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run --if-present build
+
+      - name: Verify the package tarball contains every declared entry point
+        shell: node {0}
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
+          function collectStringLeaves(node, into) {
+            if (typeof node === 'string') {
+              into.push(node);
+              return;
+            }
+            if (node && typeof node === 'object') {
+              for (const value of Object.values(node)) {
+                collectStringLeaves(value, into);
+              }
+            }
+          }
+
+          const declared = [];
+          for (const field of ['main', 'module', 'types', 'typings']) {
+            if (typeof pkg[field] === 'string') {
+              declared.push(pkg[field]);
+            }
+          }
+          if (pkg.exports) {
+            collectStringLeaves(pkg.exports, declared);
+          }
+          if (pkg.bin) {
+            collectStringLeaves(pkg.bin, declared);
+          }
+
+          const declaredEntries = [...new Set(declared.map(entry => entry.replace(/^\.\//, '')))];
+
+          const packOutput = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+            encoding: 'utf8',
+          });
+          const [report] = JSON.parse(packOutput);
+          const packedFiles = new Set(report.files.map(file => file.path));
+
+          const missing = declaredEntries.filter(entry => !packedFiles.has(entry));
+
+          if (missing.length > 0) {
+            console.error(
+              `::error::The packed tarball is missing declared entry point(s): ${missing.join(', ')}`,
+            );
+            process.exit(1);
+          }
+
+      - name: Write semantic-release configuration
+        shell: node {0}
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          const fs = require('node:fs');
+
+          // Order matters: commit-analyzer stops evaluating rules once it reaches
+          // 'major' (the highest severity), but a rule that resolves to `false` cannot
+          // ever be overridden by a later rule once matched (compareReleaseTypes ranks
+          // `false` as more severe than any real release type, since it has no index in
+          // RELEASE_TYPES). Without the breaking-change rule evaluated first, a breaking
+          // `perf` or `revert` commit would incorrectly produce no release at all.
+          const rules = [
+            { breaking: true, release: 'major' },
+            { type: 'perf', release: false },
+            { type: 'revert', release: false },
+          ];
+
+          const config = {
+            branches: ['main'],
+            plugins: [
+              ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules: rules }],
+              ['@semantic-release/release-notes-generator', { preset: 'conventionalcommits' }],
+              '@semantic-release/npm',
+              [
+                '@semantic-release/github',
+                // Disabled rather than granting issues:write/pull-requests:write: these
+                // defaults would let a hook 403 after npm publish and the GitHub Release
+                // already succeeded, reporting an irreversible release as failed.
+                { successComment: false, failComment: false, releasedLabels: false },
+              ],
+            ],
+          };
+
+          fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
+
+      - name: Publish release
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes \
+            -p semantic-release@25.0.9 \
+            -p @semantic-release/commit-analyzer@13.0.1 \
+            -p @semantic-release/release-notes-generator@14.1.1 \
+            -p @semantic-release/npm@13.1.5 \
+            -p @semantic-release/github@12.0.9 \
+            -p conventional-changelog-conventionalcommits@10.4.0 \
+            semantic-release
