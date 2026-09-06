@@ -1,0 +1,178 @@
+name: Reusable release
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: >-
+          Exact commit SHA to release. The caller must have already established that this
+          SHA belongs to its default branch (for example from
+          github.event.workflow_run.head_sha, or an operator-supplied SHA for manual
+          recovery) -- this workflow independently re-verifies it regardless.
+        required: true
+        type: string
+      ci_workflow_name:
+        description: Display name of the CI workflow whose success gates release.
+        default: CI
+        type: string
+      working_directory:
+        description: Directory containing the project package.json.
+        default: .
+        type: string
+      lockfile_path:
+        description: Path to pnpm-lock.yaml, relative to the repository root.
+        default: pnpm-lock.yaml
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    name: authorize release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      should-release: ${{ steps.verify.outputs.should-release }}
+    steps:
+      - name: Validate workflow inputs
+        shell: bash
+        env:
+          LOCKFILE_PATH: ${{ inputs.lockfile_path }}
+          SHA: ${{ inputs.sha }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::sha must be a full 40-character commit SHA, got: $SHA"
+            exit 1
+          fi
+
+          if [[ -z "$WORKING_DIRECTORY" || "$WORKING_DIRECTORY" == /* || "$WORKING_DIRECTORY" =~ (^|/)\.\.(/|$) ]]; then
+            echo "::error::working_directory must be a repository-relative path without '..' segments"
+            exit 1
+          fi
+
+          if [[ -z "$LOCKFILE_PATH" || "$LOCKFILE_PATH" == /* || "$LOCKFILE_PATH" =~ (^|/)\.\.(/|$) ]]; then
+            echo "::error::lockfile_path must be a repository-relative path without '..' segments"
+            exit 1
+          fi
+
+      - name: Verify the commit has a successful CI run on the default branch
+        id: verify
+        shell: bash
+        env:
+          CI_WORKFLOW_NAME: ${{ inputs.ci_workflow_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          runs="$(gh api "repos/${REPOSITORY}/actions/runs" \
+            -f head_sha="$SHA" \
+            -f branch=main \
+            -f event=push \
+            -f status=completed \
+            --paginate \
+            --jq '[.workflow_runs[] | select(.name == env.CI_WORKFLOW_NAME and .conclusion == "success" and .head_sha == env.SHA)] | length')"
+
+          if [[ "$runs" -lt 1 ]]; then
+            echo "::error::No successful '$CI_WORKFLOW_NAME' run found for $SHA on main"
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "should-release=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: release
+    needs: authorize
+    if: ${{ needs.authorize.outputs.should-release == 'true' }}
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository at the released commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+
+      - name: Verify the package is set up for automated releases
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+
+          if [[ "$version" != "0.0.0-development" ]]; then
+            echo "::error::package.json version must be 0.0.0-development (semantic-release sets the real version); found $version"
+            exit 1
+          fi
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          cache-dependency-path: ${{ inputs.lockfile_path }}
+          package-json-file: ${{ inputs.working_directory }}/package.json
+          install: false
+
+      - name: Install a recent npm supporting Trusted Publishing
+        run: npm install --global npm@11.19.1
+
+      - name: Configure the npm registry
+        # Explicit rather than relying on npm's default: npm's own docs are not fully
+        # conclusive on whether OIDC trusted publishing engages without this being set.
+        run: npm config set registry "https://registry.npmjs.org/"
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Write semantic-release configuration
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          # Keep this releaseRules array in sync with release/commit-analyzer-rules.json,
+          # which fixtures/release unit-tests against the real commit-analyzer plugin. A
+          # reusable workflow cannot read a sibling file from its own defining repository
+          # at run time (github.action_repository/action_ref only populate for a step's
+          # own `uses:` action, not for the workflow_call boundary) -- embedding the rules
+          # here means the caller's pinned commit SHA already guarantees which rules ran.
+          node -e "
+            const fs = require('node:fs');
+            const rules = [
+              { type: 'perf', release: false },
+              { type: 'revert', release: false },
+            ];
+            const config = {
+              branches: ['main'],
+              plugins: [
+                ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules: rules }],
+                ['@semantic-release/release-notes-generator', { preset: 'conventionalcommits' }],
+                '@semantic-release/npm',
+                '@semantic-release/github',
+              ],
+            };
+            fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
+          "
+
+      - name: Publish release
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes \
+            -p semantic-release@25.0.9 \
+            -p @semantic-release/commit-analyzer@13.0.1 \
+            -p @semantic-release/release-notes-generator@14.1.1 \
+            -p @semantic-release/npm@13.1.5 \
+            -p @semantic-release/github@12.0.9 \
+            -p conventional-changelog-conventionalcommits@10.4.0 \
+            semantic-release

@@ -1,0 +1,34 @@
+{
+	"name": "@mikode13/ci-release-fixture",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Contract fixture for the MiKode reusable release workflow's commit-analyzer rules.",
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"engines": {
+		"node": "^22.13.0 || ^24.0.0"
+	},
+	"packageManager": "pnpm@11.17.0",
+	"scripts": {
+		"preinstall": "npx only-allow pnpm",
+		"format:check": "prettier . --check",
+		"lint": "eslint . --max-warnings 0",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
+		"check": "pnpm run format:check && pnpm run lint && pnpm run typecheck",
+		"test": "pnpm run test:unit",
+		"test:unit": "vitest run --project unit",
+		"test:unit:watch": "vitest --project unit"
+	},
+	"devDependencies": {
+		"@mikode13/code-quality": "0.1.0",
+		"@mikode13/code-style": "0.1.0",
+		"@mikode13/tsconfig": "0.1.0",
+		"@semantic-release/commit-analyzer": "13.0.1",
+		"@types/node": "24.13.3",
+		"conventional-changelog-conventionalcommits": "^10.4.0",
+		"eslint": "10.8.0",
+		"prettier": "3.9.6",
+		"typescript": "6.0.3",
+		"vitest": "4.1.10"
+	}
+}

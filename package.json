@@ -17,8 +17,8 @@
 		"lint": "eslint . --max-warnings 0",
 		"lint:fix": "eslint . --fix",
 		"ci:contract:check": "node scripts/validate-ci-status-contract.mjs",
-		"typecheck": "pnpm --filter @mikode13/ci-node-fixture run typecheck && pnpm --filter @mikode13/ci-package-fixture run typecheck && node --check eslint.config.js && node --check prettier.config.mjs",
-		"test": "pnpm --filter @mikode13/ci-node-fixture test && pnpm --filter @mikode13/ci-package-fixture test",
+		"typecheck": "pnpm --filter @mikode13/ci-node-fixture run typecheck && pnpm --filter @mikode13/ci-package-fixture run typecheck && pnpm --filter @mikode13/ci-release-fixture run typecheck && node --check eslint.config.js && node --check prettier.config.mjs",
+		"test": "pnpm --filter @mikode13/ci-node-fixture test && pnpm --filter @mikode13/ci-package-fixture test && pnpm --filter @mikode13/ci-release-fixture test",
 		"check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run ci:contract:check"
 	},
 	"devDependencies": {

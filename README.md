@@ -94,6 +94,48 @@ Callers pin the full SHA from this table. A new validated release becomes the de
 new or deliberately upgraded callers, while the preceding entry remains the immediate
 rollback target.
 
+## Reusable release
+
+The reusable workflow at [`.github/workflows/release.yml`](.github/workflows/release.yml)
+implements [ADR 0011](https://github.com/Mikode13/engineering/blob/main/adr/0011-use-semantic-release-for-automated-npm-publication.md):
+publish independently versioned npm packages with `semantic-release` from Conventional
+Commits, using npm's OIDC Trusted Publishing (no stored `NPM_TOKEN`).
+
+It takes a single, pre-verified `sha` input and independently re-verifies through the
+GitHub API that a successful `CI` run exists for that exact commit on `main` before
+authorizing anything -- it does not trust a caller's own judgment about what triggered it.
+The commit-analyzer's release rules (which `type`s trigger which SemVer bump) are
+embedded directly in `release.yml`'s "Write semantic-release configuration" step --
+a reusable workflow cannot read a sibling file from its own defining repository at run
+time, so the caller's pinned commit SHA is what guarantees which rules ran. A mirror of
+that same array lives in
+[`release/commit-analyzer-rules.json`](release/commit-analyzer-rules.json), which
+[`fixtures/release`](fixtures/release) unit-tests against the real commit-analyzer
+plugin; keep both in sync when the rules change.
+
+### Caller contract
+
+A consuming repository owns a thin caller workflow (not part of this repository) that:
+
+1. Triggers on `workflow_run` for its own `CI` workflow (`types: [completed]`), and
+   separately exposes `workflow_dispatch` for manual recovery.
+2. Determines the commit SHA to release itself (`github.event.workflow_run.head_sha`, or
+   an operator-supplied SHA on manual dispatch) and passes it as the `sha` input --
+   this repository's workflow does not depend on `workflow_run` event context surviving
+   the `workflow_call` boundary, which is undocumented behavior.
+3. Grants `id-token: write` at its own job level, in addition to this reusable workflow
+   granting it internally -- npm Trusted Publishing requires both.
+4. Pins this repository's `release.yml` to a full commit SHA, same as the CI caller
+   contract.
+5. Keeps `package.json`'s `version` at `0.0.0-development` in source control; this
+   workflow refuses to release otherwise.
+
+**npm Trusted Publisher configuration gotcha**: npm matches a Trusted Publisher entry
+against the **calling repository's own workflow filename** (for example
+`cross-platform`'s `.github/workflows/release.yml`), not this repository's
+`release.yml` that actually runs `npm publish`. Register each package's Trusted
+Publisher on npmjs.com against the consumer's caller filename, not this one.
+
 ## Developing the workflows
 
 The repository validates workflow syntax and exercises retained profiles and explicit
@@ -107,6 +149,12 @@ pnpm test
 
 The content-only documentation fixture deliberately has no `package.json` or pnpm lockfile.
 It verifies the boundary introduced by ADR 0015 rather than simulating project tooling.
+
+Pull requests additionally run actionlint and every retained profile and capability
+fixture, including `release`, through the reusable CI workflow itself. The outer
+`required` job covers all of those checks. The release workflow's own
+`workflow_run`/OIDC/publish path is not exercised by this repository's CI -- it can only
+be proven end-to-end once a real consumer adopts it.
 
 ## License
 
