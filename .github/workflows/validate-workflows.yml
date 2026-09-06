@@ -102,6 +102,46 @@ jobs:
       working_directory: fixtures/e2e
       lockfile_path: fixtures/e2e/pnpm-lock.yaml
 
+  toolchain_mechanics:
+    name: release toolchain mechanics
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Exercises the exact mechanics release.yml's release job uses, against this
+      # pull request's own commit. This is what the offline scripts/test-release-
+      # toolchain.mjs run (part of the static job above) cannot catch on its own: it
+      # never invokes the real actions/checkout action, so it could not have caught
+      # actions/checkout refusing a path outside GITHUB_WORKSPACE (confirmed by running
+      # the pinned action locally with this exact input before this job existed).
+      - name: Checkout the pinned release toolchain
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: .mikode-release-toolchain
+          sparse-checkout: release-toolchain
+          persist-credentials: false
+
+      - name: Move the release toolchain out of the consumer's tree
+        run: mv "$GITHUB_WORKSPACE/.mikode-release-toolchain" "$RUNNER_TEMP/mikode-release-toolchain"
+
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          version: 11.17.0
+          runtime: node@24
+          cache: true
+          install: false
+
+      - name: Verify the release toolchain mechanics end to end
+        env:
+          RELEASE_TOOLCHAIN_DIRECTORY: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
+        run: node scripts/test-release-toolchain.mjs
+
   required:
     name: CI / required
     if: ${{ always() }}
@@ -113,6 +153,7 @@ jobs:
       - capabilities
       - docs_content
       - end_to_end
+      - toolchain_mechanics
     runs-on: ubuntu-latest
     permissions: {}
     env:
@@ -123,6 +164,7 @@ jobs:
       NODE_RESULT: ${{ needs.node.result }}
       PACKAGE_RESULT: ${{ needs.package.result }}
       STATIC_RESULT: ${{ needs.static.result }}
+      TOOLCHAIN_MECHANICS_RESULT: ${{ needs.toolchain_mechanics.result }}
     steps:
       - name: Verify validation jobs
         shell: bash
@@ -136,7 +178,8 @@ jobs:
             "docs:$DOCS_RESULT" \
             "capabilities:$CAPABILITIES_RESULT" \
             "docs-content:$DOCS_CONTENT_RESULT" \
-            "end-to-end:$E2E_RESULT"
+            "end-to-end:$E2E_RESULT" \
+            "toolchain-mechanics:$TOOLCHAIN_MECHANICS_RESULT"
           do
             job="${result%%:*}"
             status="${result#*:}"

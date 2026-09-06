@@ -7,7 +7,17 @@ import { fileURLToPath } from 'node:url';
 import { extractWorkflowStepScript } from './lib/extractWorkflowStepScript.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
-const toolchainDirectory = path.join(repositoryRoot, 'release-toolchain');
+// Overridable so the same test can run against a toolchain installed in place
+// (release-toolchain/, this file's default -- fast logic-only check, run by
+// `pnpm run check`) or against one installed via the real checkout-and-move mechanics
+// release.yml actually uses (a separate CI job points this at $RUNNER_TEMP -- see
+// "release toolchain mechanics" in validate-workflows.yml). The two are different
+// concerns: this script's own git/semantic-release logic doesn't change either way, but
+// only the mechanics job would have caught actions/checkout rejecting a path outside
+// GITHUB_WORKSPACE, since a plain `node scripts/test-release-toolchain.mjs` run never
+// invokes the real checkout action at all.
+const toolchainDirectory =
+	process.env.RELEASE_TOOLCHAIN_DIRECTORY ?? path.join(repositoryRoot, 'release-toolchain');
 
 // Installs the exact pinned toolchain the same way the release job does. This is what
 // actually exercises plugin compatibility (this test exists because
@@ -64,9 +74,17 @@ const workDirectory = path.join(scratchRoot, 'work');
 // this test, e.g. refs/pull/7/merge) into the inner dry-run's own branch detection --
 // `--no-ci` only skips the "is this CI" gate, not environment-reported branch
 // resolution, so semantic-release silently refused to release, believing it was running
-// on the wrong branch. Reproduced locally by setting the same two env vars before
-// finding this fix, since it never failed without them present.
-const cleanEnv = { PATH: process.env.PATH, HOME: process.env.HOME };
+// on the wrong branch. Reproduced locally by exporting GITHUB_ACTIONS/CI/GITHUB_REF/
+// GITHUB_EVENT_NAME before finding this fix, since it never failed without them
+// present. A denylist rather than an allowlist: preserves everything else (PATH, HOME,
+// proxy/locale/cert settings, whatever a future environment needs) instead of guessing
+// a fixed set of variables git/node/semantic-release require, while still neutralizing
+// every CI-signal variable that could leak into the inner dry-run's own detection.
+const cleanEnv = Object.fromEntries(
+	Object.entries(process.env).filter(
+		([name]) => !/^(CI|GITHUB_.*|RUNNER_.*|ACTIONS_.*)$/.test(name),
+	),
+);
 
 function git(args, cwd) {
 	execFileSync('git', args, { cwd, env: cleanEnv, stdio: 'pipe' });

@@ -224,19 +224,27 @@ ignore for exactly those two messages, with a removal note once actionlint catch
 context values, and the whole mechanism, were verified empirically with a throwaway
 `workflow_call` probe before being relied on here, not merely read about.
 
-The toolchain is checked out under `runner.temp` (not the consumer's own working
-directory) at that commit, installed there with
-`pnpm install --frozen-lockfile --ignore-workspace`, and the "Write semantic-release
-configuration" step also writes `release.config.cjs` there -- so nothing this workflow
-generates or installs can ever end up inside the consumer's own tree or its published
-tarball (the tarball-verification step also asserts `release.config.cjs` is absent from
-the pack list, as a regression guard). `semantic-release` is then invoked with
-`--extends` pointing at that config file: a plugin named in an extended config resolves
-relative to _that config file's own directory_, so plugins load from the toolchain's
-`node_modules` regardless of `working-directory` staying the consumer's own directory for
-git operations. This was verified empirically against a scratch repository with a real
-local bare Git remote and no local `node_modules` at all, not assumed from reading
-semantic-release's source.
+The toolchain is checked out at that commit into `.mikode-release-toolchain` (a
+repository-relative path, not directly under `runner.temp`) and immediately moved there
+with a plain `mv`. This two-step dance is required, not stylistic: `actions/checkout`
+(including this pinned `v7.0.1`) resolves its `path` input against `GITHUB_WORKSPACE`
+and throws `Repository path '...' is not under '...'` for anything outside it, before
+any network call -- confirmed by running the pinned action's own `dist/index.js`
+locally with these exact inputs. The move itself is safe even though
+`persist-credentials: false` already ran during the checkout step: the action's
+post-step cleanup checks for `.git/config` at the _original_ path and returns
+immediately once that's gone, so moving it does not trip the action's own teardown.
+Once relocated, it's installed with `pnpm install --frozen-lockfile --ignore-workspace`,
+and the "Write semantic-release configuration" step also writes `release.config.cjs`
+there -- so nothing this workflow generates or installs can ever end up inside the
+consumer's own tree or its published tarball (the tarball-verification step also
+asserts `release.config.cjs` is absent from the pack list, as a regression guard).
+`semantic-release` is then invoked with `--extends` pointing at that config file: a
+plugin named in an extended config resolves relative to _that config file's own
+directory_, so plugins load from the toolchain's `node_modules` regardless of
+`working-directory` staying the consumer's own directory for git operations. This was
+verified empirically against a scratch repository with a real local bare Git remote and
+no local `node_modules` at all, not assumed from reading semantic-release's source.
 
 `scripts/test-release-toolchain.mjs` (run as part of `pnpm run check`, alongside the
 other three release-workflow tests) installs the real pinned toolchain, extracts and
@@ -249,6 +257,26 @@ caught `conventional-changelog-conventionalcommits@10` silently breaking
 `@semantic-release/release-notes-generator@14` with a "missing helper" error: no
 analyzer-only test could have, since the incompatibility was specific to notes
 generation.
+
+That script's own child processes are run with a scrubbed environment (every
+`CI`/`GITHUB_*`/`RUNNER_*`/`ACTIONS_*` variable stripped, everything else preserved) --
+without it, running the test inside GitHub Actions leaks the outer job's own
+`GITHUB_REF` (a pull request's merge ref) into the inner dry-run's branch detection,
+since `--no-ci` only skips the "is this CI" gate, not environment-reported branch
+resolution. Reproduced locally by exporting those variables before finding the fix. The
+scratch bare repository's `HEAD` is also pinned explicitly to `refs/heads/main` after
+creation, rather than trusting `init.defaultBranch`: this repository's own git and the
+GitHub Actions runner's git disagreed on that default, which is exactly the kind of gap
+that only shows up once code actually runs somewhere else.
+
+The same script also runs a second time, unmodified, as **`release toolchain
+mechanics`** in `validate-workflows.yml` -- pointed at a toolchain installed via the
+real `actions/checkout` + move dance described above (via the
+`RELEASE_TOOLCHAIN_DIRECTORY` environment variable) against this repository's own
+`github.sha`, on every pull request. This is the job that would have caught the
+`GITHUB_WORKSPACE` defect above: a plain `node scripts/test-release-toolchain.mjs` run
+never invokes the real checkout action at all, so no purely offline test could have
+caught a bug that only exists in that action's own runtime behavior.
 
 ## Developing the workflows
 

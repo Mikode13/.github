@@ -204,9 +204,21 @@ jobs:
         with:
           repository: ${{ steps.toolchain.outputs.repository }}
           ref: ${{ steps.toolchain.outputs.sha }}
-          path: ${{ runner.temp }}/mikode-release-toolchain
+          # Must be relative: actions/checkout (including this pinned v7.0.1) resolves
+          # path against GITHUB_WORKSPACE and refuses anything outside it, throwing
+          # "Repository path '...' is not under '...'" before any network call --
+          # confirmed by running the pinned action's own dist/index.js locally. Moved out
+          # of the consumer's tree in the next step instead.
+          path: .mikode-release-toolchain
           sparse-checkout: release-toolchain
           persist-credentials: false
+
+      - name: Move the release toolchain out of the consumer's tree
+        # Safe to move before the checkout action's own post-step cleanup runs: that
+        # cleanup checks for .git/config at this original path and returns immediately
+        # if it's missing, and persist-credentials: false above already removed any
+        # injected credentials synchronously during the checkout step itself.
+        run: mv "$GITHUB_WORKSPACE/.mikode-release-toolchain" "$RUNNER_TEMP/mikode-release-toolchain"
 
       - name: Install the release toolchain
         working-directory: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
