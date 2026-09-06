@@ -59,11 +59,20 @@ const scratchRoot = mkdtempSync(path.join(tmpdir(), 'release-toolchain-'));
 const bareRemote = path.join(scratchRoot, 'remote.git');
 const workDirectory = path.join(scratchRoot, 'work');
 
+// Isolated from this test's own CI environment. Without this, running the test inside
+// GitHub Actions leaks GITHUB_ACTIONS/GITHUB_REF (set on the outer job actually running
+// this test, e.g. refs/pull/7/merge) into the inner dry-run's own branch detection --
+// `--no-ci` only skips the "is this CI" gate, not environment-reported branch
+// resolution, so semantic-release silently refused to release, believing it was running
+// on the wrong branch. Reproduced locally by setting the same two env vars before
+// finding this fix, since it never failed without them present.
+const cleanEnv = { PATH: process.env.PATH, HOME: process.env.HOME };
+
 function git(args, cwd) {
-	execFileSync('git', args, { cwd, stdio: 'pipe' });
+	execFileSync('git', args, { cwd, env: cleanEnv, stdio: 'pipe' });
 }
 
-execFileSync('git', ['init', '--bare', '--quiet', bareRemote]);
+execFileSync('git', ['init', '--bare', '--quiet', bareRemote], { env: cleanEnv });
 mkdirSync(workDirectory);
 git(['init', '--quiet'], workDirectory);
 git(['config', 'user.email', 'test@example.com'], workDirectory);
@@ -110,7 +119,7 @@ const semanticReleaseBin = path.join(
 const output = execFileSync(
 	process.execPath,
 	[semanticReleaseBin, '--dry-run', '--no-ci', '--extends', testConfigPath],
-	{ cwd: workDirectory, encoding: 'utf8' },
+	{ cwd: workDirectory, env: cleanEnv, encoding: 'utf8' },
 );
 
 assert.match(
