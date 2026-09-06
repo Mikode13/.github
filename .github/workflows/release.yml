@@ -331,11 +331,88 @@ jobs:
             process.exit(1);
           }
 
+      - name: Authenticate to npm through OIDC trusted publishing
+        shell: node {0}
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          NPM_REGISTRY: https://registry.npmjs.org/
+        run: |
+          const fs = require('node:fs');
+
+          // @semantic-release/npm 13.1.5 exchanges an OIDC token only to *verify* that
+          // trusted publishing is possible, then returns without writing any credential
+          // and leaves `npm publish` to repeat the exchange itself. npm did not, and a
+          // real release failed with ENEEDAUTH after the tag had already been pushed. So
+          // the exchange happens here instead, and the short-lived token it returns is
+          // written where npm actually reads it.
+          const registry = process.env.NPM_REGISTRY;
+          const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+          const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+
+          if (!requestUrl || !requestToken) {
+            console.error('::error::No GitHub OIDC context. This job requires id-token: write.');
+            process.exit(1);
+          }
+
+          const { name } = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
+          // Wrapped rather than using top-level await: `shell: node {0}` runs the script
+          // as CommonJS, where top-level await is a syntax error.
+          async function authenticate() {
+            const idTokenResponse = await fetch(
+              `${requestUrl}&audience=${encodeURIComponent('npm:registry.npmjs.org')}`,
+              { headers: { Authorization: `Bearer ${requestToken}` } },
+            );
+
+            if (!idTokenResponse.ok) {
+              console.error(
+                `::error::Could not obtain a GitHub OIDC token: ${idTokenResponse.status}`,
+              );
+              process.exit(1);
+            }
+
+            const { value: idToken } = await idTokenResponse.json();
+
+            const exchangeResponse = await fetch(
+              `${registry}-/npm/v1/oidc/token/exchange/package/${encodeURIComponent(name)}`,
+              { method: 'POST', headers: { Authorization: `Bearer ${idToken}` } },
+            );
+            const exchangeBody = await exchangeResponse.json();
+
+            if (!exchangeResponse.ok) {
+              console.error(
+                `::error::npm rejected the OIDC token exchange for ${name}: ${exchangeResponse.status} ${exchangeBody.message ?? ''}. Check that a Trusted Publisher is registered for this package against the calling repository's own workflow filename.`,
+              );
+              process.exit(1);
+            }
+
+            // Masked before it can reach any later log line.
+            console.log(`::add-mask::${exchangeBody.token}`);
+
+            // A project-level .npmrc outranks the --userconfig file the plugin passes,
+            // and npm always excludes .npmrc from a published tarball, so the credential
+            // cannot reach the artifact. Appended rather than written, so a consumer's
+            // own .npmrc survives.
+            const { host } = new URL(registry);
+            fs.appendFileSync('.npmrc', `\n//${host}/:_authToken=${exchangeBody.token}\n`);
+
+            console.log(`Authenticated to ${registry} for ${name} through OIDC.`);
+          }
+
+          authenticate().catch(error => {
+            console.error(`::error::OIDC authentication failed: ${error.message}`);
+            process.exit(1);
+          });
+
       - name: Publish release
         working-directory: ${{ inputs.working_directory }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TOOLCHAIN_DIR: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
+          # ADR 0011 requires public packages to be published with provenance. Neither
+          # this workflow nor @semantic-release/npm passes --provenance, so it is set as
+          # npm configuration, which the plugin's own `npm publish` call inherits.
+          NPM_CONFIG_PROVENANCE: true
         run: |
           node "$TOOLCHAIN_DIR/node_modules/semantic-release/bin/semantic-release.js" \
             --extends "$TOOLCHAIN_DIR/release.config.cjs"
