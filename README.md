@@ -44,6 +44,10 @@ The workflow always produces an aggregate job named `required`. A thin caller na
 reusable-workflow job `CI`, which gives the organization ruleset the stable status context
 `CI / required`.
 
+This repository exercises several caller shapes in one validation workflow instead of using
+a single thin caller. Its own final aggregate is named `CI / required` directly so local
+validation reports the same protected status as consuming repositories.
+
 ### Legacy profiles
 
 Existing SHA-pinned callers remain compatible with the previous profile contract:
@@ -65,6 +69,15 @@ A repository caller must:
 3. Cancel superseded pull request runs through a per-pull-request concurrency group.
 4. Pin this repository's reusable workflow to a full commit SHA.
 5. Enable every capability that applies to the repository.
+
+### Required status migration
+
+A repository must observe `CI / required` from its chosen caller revision before adding that
+context to branch protection. When replacing another required context, keep the existing
+gate until the new status has passed, require the new context, and only then retire the old
+requirement and its producer. This prevents an unprotected interval or a permanently pending
+check. Follow the controlled rollout in the
+[continuous integration standard](https://github.com/Mikode13/engineering/blob/main/standards/continuous-integration.md#central-workflow-changes).
 
 The organization template at [`workflow-templates/ci.yml`](workflow-templates/ci.yml) still
 uses the legacy publishable-package profile for compatibility. A later validated workflow

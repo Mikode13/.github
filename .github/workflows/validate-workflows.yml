@@ -103,7 +103,7 @@ jobs:
       lockfile_path: fixtures/e2e/pnpm-lock.yaml
 
   required:
-    name: required
+    name: CI / required
     if: ${{ always() }}
     needs:
       - static
