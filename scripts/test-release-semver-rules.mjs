@@ -3,11 +3,26 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { analyzeCommits } from '@semantic-release/commit-analyzer';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { extractWorkflowStepScript } from './lib/extractWorkflowStepScript.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
+const toolchainDirectory = path.join(repositoryRoot, 'release-toolchain');
+
+// Installs the exact pinned toolchain rather than a separate root-level devDependency,
+// so this test exercises the same @semantic-release/commit-analyzer the release job
+// actually publishes with -- one pinned copy, not two that can drift apart.
+execFileSync('pnpm', ['install', '--frozen-lockfile', '--ignore-workspace'], {
+	cwd: toolchainDirectory,
+	stdio: 'inherit',
+});
+
+const { analyzeCommits } = await import(
+	pathToFileURL(
+		path.join(toolchainDirectory, 'node_modules/@semantic-release/commit-analyzer/index.js'),
+	)
+);
+
 const workflowText = readFileSync(
 	path.join(repositoryRoot, '.github/workflows/release.yml'),
 	'utf8',
@@ -27,7 +42,7 @@ writeFileSync(scriptPath, script);
 execFileSync(process.execPath, [scriptPath], { cwd: scratchRoot });
 
 const configPath = path.join(scratchRoot, 'release.config.cjs');
-const config = (await import(configPath)).default;
+const config = (await import(pathToFileURL(configPath))).default;
 
 assert.deepEqual(config.branches, ['main']);
 
