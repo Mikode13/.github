@@ -73,6 +73,16 @@ function git(args, cwd) {
 }
 
 execFileSync('git', ['init', '--bare', '--quiet', bareRemote], { env: cleanEnv });
+// A fresh bare repository's HEAD default (main vs. master) depends on the git
+// installation's own init.defaultBranch, which differs between environments (this
+// failed in real CI while passing locally, for exactly that reason: semantic-release
+// fetches HEAD from the remote to resolve branches, and a HEAD pointing at a ref that
+// was never pushed -- because this script only ever pushes main -- fails outright).
+// Pin it explicitly so this test doesn't depend on any environment's git config.
+execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], {
+	cwd: bareRemote,
+	env: cleanEnv,
+});
 mkdirSync(workDirectory);
 git(['init', '--quiet'], workDirectory);
 git(['config', 'user.email', 'test@example.com'], workDirectory);
