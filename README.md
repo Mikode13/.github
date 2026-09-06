@@ -181,7 +181,9 @@ A consuming repository owns a thin caller workflow (not part of this repository)
 3. Grants `id-token: write` at its own job level, in addition to this reusable workflow
    granting it internally -- npm Trusted Publishing requires both.
 4. Pins this repository's `release.yml` to a full commit SHA, same as the CI caller
-   contract.
+   contract, and passes that **same SHA** as the `toolchain_ref` input -- this workflow
+   cannot read its own defining repository's ref at run time (see
+   [Release toolchain](#release-toolchain) below), so the caller must state it twice.
 5. Keeps `package.json`'s `version` at `0.0.0-development` in source control; this
    workflow refuses to release otherwise.
 6. Before a manual `workflow_dispatch` retry, checks npm (does this version already
@@ -200,14 +202,29 @@ against the **calling repository's own workflow filename** (for example
 `release.yml` that actually runs `npm publish`. Register each package's Trusted
 Publisher on npmjs.com against the consumer's caller filename, not this one.
 
-### Known limitation
+### Release toolchain
 
-`npx -p <package>@<exact-version>` pins the top-level release toolchain but still
-resolves its transitive dependencies fresh, unpinned, on every run, inside the job
-holding `contents: write` and OIDC authority. A follow-up change will commit a dedicated
-`package.json` and lockfile for the release toolchain in this repository, checked out at
-a full commit SHA once one exists post-merge, and install it with
-`pnpm install --frozen-lockfile` instead.
+[`release-toolchain/`](release-toolchain) holds a `package.json` and its own
+`pnpm-lock.yaml`, pinning `semantic-release` and every plugin exactly. It is
+deliberately excluded from this repository's own workspace (`pnpm-workspace.yaml` does
+not list it, and it is installed with `--ignore-workspace`) so its dependency graph
+never mixes with, or gets bumped incidentally by, anything else here.
+
+The `release` job checks out this same repository a second time, at the caller-supplied
+`toolchain_ref`, into `__mikode_release_toolchain`, installs it there with
+`pnpm install --frozen-lockfile`, and invokes its `semantic-release` binary directly by
+path while `working-directory` stays the consumer's own directory. This works because
+Node resolves a bare `require('@semantic-release/...')` relative to the _requiring
+module's_ own location (inside the toolchain's `node_modules`), not the process's
+current working directory -- verified empirically against a scratch repository with no
+local `node_modules` at all, since this is exactly the load-bearing assumption the whole
+design depends on. No stored `NPM_TOKEN` is introduced by this: `@semantic-release/npm`
+still authenticates through the OIDC exchange already configured in the `release` job.
+
+A dedicated `toolchain_ref` input, rather than reusing `sha`, exists because the
+toolchain is pinned to a commit _of this repository_, not of the package being
+released -- the two are unrelated repositories and unrelated SHAs that happen to both be
+supplied by the same caller.
 
 ## Developing the workflows
 

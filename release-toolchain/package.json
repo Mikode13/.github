@@ -1,0 +1,16 @@
+{
+	"name": "@mikode13/release-toolchain",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Pinned, reproducible toolchain the reusable release workflow uses to publish npm packages. Not part of the pnpm-workspace.yaml workspace: it is checked out and installed independently, at the caller's pinned commit SHA, so a release never resolves fresh transitive dependencies at publish time.",
+	"license": "SEE LICENSE IN ../LICENSE",
+	"packageManager": "pnpm@11.17.0",
+	"dependencies": {
+		"@semantic-release/commit-analyzer": "13.0.1",
+		"@semantic-release/github": "12.0.9",
+		"@semantic-release/npm": "13.1.5",
+		"@semantic-release/release-notes-generator": "14.1.1",
+		"conventional-changelog-conventionalcommits": "10.4.0",
+		"semantic-release": "25.0.9"
+	}
+}

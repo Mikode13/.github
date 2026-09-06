@@ -11,6 +11,17 @@ on:
           recovery) -- this workflow independently re-verifies it regardless.
         required: true
         type: string
+      toolchain_ref:
+        description: >-
+          Full commit SHA of this repository to check out the pinned release toolchain
+          from (release-toolchain/). Must be the exact same SHA the caller pins in its
+          `uses: Mikode13/.github/.github/workflows/release.yml@<SHA>` line -- this
+          workflow cannot read its own defining repository's ref at run time
+          (github.action_repository/action_ref only populate for a step's own `uses:`
+          action, not for the workflow_call boundary), so the caller must state it
+          explicitly.
+        required: true
+        type: string
       working_directory:
         description: Directory containing the project package.json.
         default: .
@@ -38,10 +49,16 @@ jobs:
         env:
           LOCKFILE_PATH: ${{ inputs.lockfile_path }}
           SHA: ${{ inputs.sha }}
+          TOOLCHAIN_REF: ${{ inputs.toolchain_ref }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::sha must be a full 40-character commit SHA, got: $SHA"
+            exit 1
+          fi
+
+          if [[ ! "$TOOLCHAIN_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::toolchain_ref must be a full 40-character commit SHA, got: $TOOLCHAIN_REF"
             exit 1
           fi
 
@@ -260,16 +277,25 @@ jobs:
 
           fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
 
+      - name: Checkout the pinned release toolchain
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Mikode13/.github
+          ref: ${{ inputs.toolchain_ref }}
+          path: __mikode_release_toolchain
+          sparse-checkout: release-toolchain
+
+      - name: Install the release toolchain
+        working-directory: __mikode_release_toolchain/release-toolchain
+        # --ignore-workspace: this checkout also contains this repository's own
+        # pnpm-workspace.yaml, which does not list release-toolchain as a member (it is
+        # deliberately excluded from the shared lockfile so its own dependency graph
+        # stays frozen independently of everything else in this repository).
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
       - name: Publish release
         working-directory: ${{ inputs.working_directory }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx --yes \
-            -p semantic-release@25.0.9 \
-            -p @semantic-release/commit-analyzer@13.0.1 \
-            -p @semantic-release/release-notes-generator@14.1.1 \
-            -p @semantic-release/npm@13.1.5 \
-            -p @semantic-release/github@12.0.9 \
-            -p conventional-changelog-conventionalcommits@10.4.0 \
-            semantic-release
+          node "${{ github.workspace }}/__mikode_release_toolchain/release-toolchain/node_modules/semantic-release/bin/semantic-release.js"
