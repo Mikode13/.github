@@ -11,17 +11,6 @@ on:
           recovery) -- this workflow independently re-verifies it regardless.
         required: true
         type: string
-      toolchain_ref:
-        description: >-
-          Full commit SHA of this repository to check out the pinned release toolchain
-          from (release-toolchain/). Must be the exact same SHA the caller pins in its
-          `uses: Mikode13/.github/.github/workflows/release.yml@<SHA>` line -- this
-          workflow cannot read its own defining repository's ref at run time
-          (github.action_repository/action_ref only populate for a step's own `uses:`
-          action, not for the workflow_call boundary), so the caller must state it
-          explicitly.
-        required: true
-        type: string
       working_directory:
         description: Directory containing the project package.json.
         default: .
@@ -49,16 +38,10 @@ jobs:
         env:
           LOCKFILE_PATH: ${{ inputs.lockfile_path }}
           SHA: ${{ inputs.sha }}
-          TOOLCHAIN_REF: ${{ inputs.toolchain_ref }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::sha must be a full 40-character commit SHA, got: $SHA"
-            exit 1
-          fi
-
-          if [[ ! "$TOOLCHAIN_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::toolchain_ref must be a full 40-character commit SHA, got: $TOOLCHAIN_REF"
             exit 1
           fi
 
@@ -190,6 +173,93 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: pnpm run --if-present build
 
+      - name: Determine the release toolchain revision
+        id: toolchain
+        shell: bash
+        env:
+          JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          # actionlint (1.7.12, current latest) does not model workflow_sha/
+          # workflow_repository on the job context at all -- see .github/actionlint.yaml.
+          # Verified empirically that both populate correctly for a job inside a workflow
+          # invoked via workflow_call: a throwaway probe workflow calling a reusable
+          # workflow echoed job.workflow_sha as the exact commit that defines the running
+          # workflow, and job.workflow_repository as this repository.
+          if [[ ! "$JOB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::job.workflow_sha did not resolve to a 40-character commit SHA: $JOB_WORKFLOW_SHA"
+            exit 1
+          fi
+
+          if [[ -z "$JOB_WORKFLOW_REPOSITORY" ]]; then
+            echo "::error::job.workflow_repository did not resolve to a repository"
+            exit 1
+          fi
+
+          echo "sha=$JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository=$JOB_WORKFLOW_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the pinned release toolchain
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.toolchain.outputs.repository }}
+          ref: ${{ steps.toolchain.outputs.sha }}
+          path: ${{ runner.temp }}/mikode-release-toolchain
+          sparse-checkout: release-toolchain
+          persist-credentials: false
+
+      - name: Install the release toolchain
+        working-directory: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
+        # --ignore-workspace: this checkout also contains this repository's own
+        # pnpm-workspace.yaml, which does not list release-toolchain as a member (it is
+        # deliberately excluded from the shared lockfile so its own dependency graph
+        # stays frozen independently of everything else in this repository). Checked out
+        # under runner.temp, not the consumer's own tree, so nothing it contains can ever
+        # be picked up by the consumer's own tarball.
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Write semantic-release configuration
+        shell: node {0}
+        working-directory: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
+        run: |
+          const fs = require('node:fs');
+
+          // Order matters: commit-analyzer stops evaluating rules once it reaches
+          // 'major' (the highest severity), but a rule that resolves to `false` cannot
+          // ever be overridden by a later rule once matched (compareReleaseTypes ranks
+          // `false` as more severe than any real release type, since it has no index in
+          // RELEASE_TYPES). Without the breaking-change rule evaluated first, a breaking
+          // `perf` or `revert` commit would incorrectly produce no release at all.
+          const rules = [
+            { breaking: true, release: 'major' },
+            { type: 'perf', release: false },
+            { type: 'revert', release: false },
+          ];
+
+          const config = {
+            branches: ['main'],
+            plugins: [
+              ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules: rules }],
+              ['@semantic-release/release-notes-generator', { preset: 'conventionalcommits' }],
+              '@semantic-release/npm',
+              [
+                '@semantic-release/github',
+                // Disabled rather than granting issues:write/pull-requests:write: these
+                // defaults would let a hook 403 after npm publish and the GitHub Release
+                // already succeeded, reporting an irreversible release as failed.
+                { successComment: false, failComment: false, releasedLabels: false },
+              ],
+            ],
+          };
+
+          // Written into the toolchain checkout, never into the consumer's own working
+          // directory: semantic-release resolves plugins named in an extended config
+          // relative to that config file's own directory, so this is also what makes the
+          // plugins resolve from the toolchain's node_modules rather than the consumer's
+          // (verified empirically against a scratch repository with no local
+          // node_modules at all, invoked with --extends pointing here).
+          fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
+
       - name: Verify the package tarball contains every declared entry point
         shell: node {0}
         working-directory: ${{ inputs.working_directory }}
@@ -241,61 +311,19 @@ jobs:
             process.exit(1);
           }
 
-      - name: Write semantic-release configuration
-        shell: node {0}
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          const fs = require('node:fs');
-
-          // Order matters: commit-analyzer stops evaluating rules once it reaches
-          // 'major' (the highest severity), but a rule that resolves to `false` cannot
-          // ever be overridden by a later rule once matched (compareReleaseTypes ranks
-          // `false` as more severe than any real release type, since it has no index in
-          // RELEASE_TYPES). Without the breaking-change rule evaluated first, a breaking
-          // `perf` or `revert` commit would incorrectly produce no release at all.
-          const rules = [
-            { breaking: true, release: 'major' },
-            { type: 'perf', release: false },
-            { type: 'revert', release: false },
-          ];
-
-          const config = {
-            branches: ['main'],
-            plugins: [
-              ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules: rules }],
-              ['@semantic-release/release-notes-generator', { preset: 'conventionalcommits' }],
-              '@semantic-release/npm',
-              [
-                '@semantic-release/github',
-                // Disabled rather than granting issues:write/pull-requests:write: these
-                // defaults would let a hook 403 after npm publish and the GitHub Release
-                // already succeeded, reporting an irreversible release as failed.
-                { successComment: false, failComment: false, releasedLabels: false },
-              ],
-            ],
-          };
-
-          fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
-
-      - name: Checkout the pinned release toolchain
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Mikode13/.github
-          ref: ${{ inputs.toolchain_ref }}
-          path: __mikode_release_toolchain
-          sparse-checkout: release-toolchain
-
-      - name: Install the release toolchain
-        working-directory: __mikode_release_toolchain/release-toolchain
-        # --ignore-workspace: this checkout also contains this repository's own
-        # pnpm-workspace.yaml, which does not list release-toolchain as a member (it is
-        # deliberately excluded from the shared lockfile so its own dependency graph
-        # stays frozen independently of everything else in this repository).
-        run: pnpm install --frozen-lockfile --ignore-workspace
+          // Regression guard: the release config lives in the toolchain checkout under
+          // runner.temp, never in this directory -- if it ever ends up here again, the
+          // fix that moved it out of the consumer's tree has regressed.
+          if (packedFiles.has('release.config.cjs')) {
+            console.error('::error::The packed tarball must never contain release.config.cjs');
+            process.exit(1);
+          }
 
       - name: Publish release
         working-directory: ${{ inputs.working_directory }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOOLCHAIN_DIR: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
         run: |
-          node "${{ github.workspace }}/__mikode_release_toolchain/release-toolchain/node_modules/semantic-release/bin/semantic-release.js"
+          node "$TOOLCHAIN_DIR/node_modules/semantic-release/bin/semantic-release.js" \
+            --extends "$TOOLCHAIN_DIR/release.config.cjs"

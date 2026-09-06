@@ -1,0 +1,16 @@
+self-hosted-runner:
+  labels: []
+config-variables: null
+
+# actionlint (1.7.12, current latest) models the `job` context as a strict object with
+# only check_run_id, container, services, and status -- it does not yet know about
+# job.workflow_sha / job.workflow_repository, which are real GitHub Actions context
+# properties (verified empirically: a throwaway probe workflow calling a reusable
+# workflow via workflow_call correctly echoed both). Remove this narrow ignore once
+# actionlint's schema catches up.
+# https://github.com/rhysd/actionlint/blob/v1.7.12/docs/config.md#ignore-glob-pattern
+paths:
+  .github/workflows/release.yml:
+    ignore:
+      - 'property "workflow_sha" is not defined in object type'
+      - 'property "workflow_repository" is not defined in object type'

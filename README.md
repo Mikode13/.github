@@ -147,8 +147,9 @@ already-irreversible release as failed.
 
 ### Testing this workflow without touching npm or GitHub for real
 
-`scripts/test-release-authorization.mjs`, `scripts/test-release-semver-rules.mjs`, and
-`scripts/test-release-package-validation.mjs` (run as part of `pnpm run check`) each use
+`scripts/test-release-authorization.mjs`, `scripts/test-release-toolchain.mjs`,
+`scripts/test-release-semver-rules.mjs`, and `scripts/test-release-package-validation.mjs`
+(run as part of `pnpm run check`) each use
 [`scripts/lib/extractWorkflowStepScript.mjs`](scripts/lib/extractWorkflowStepScript.mjs)
 to pull the literal script out of one `release.yml` step and execute it directly -- the
 same text that ships in production, not a hand-copied duplicate that can drift out of
@@ -158,9 +159,12 @@ sync:
   scriptable fake `gh` binary, covering a matching SHA, a mismatched SHA, no run on
   `main`/`push`, a failed CI run, a missing or failed `CI / required` check, a check
   belonging to a different check suite, and that every call used `GET`.
-- Semver rules are tested against the real `@semantic-release/commit-analyzer` plugin,
-  covering every ADR 0011 partition plus the breaking-`perf`/breaking-`revert`
-  regression cases the rule-ordering fix above exists for.
+- The toolchain is tested end to end against a real local Git remote -- see
+  [Release toolchain](#release-toolchain) below.
+- Semver rules are tested against the real `@semantic-release/commit-analyzer` plugin
+  from the pinned toolchain (not a separate root-level copy), covering every ADR 0011
+  partition plus the breaking-`perf`/breaking-`revert` regression cases the rule-ordering
+  fix above exists for.
 - Package validation runs against two fixtures under `scripts/fixtures/`: one with a
   built `dist/` (must pass) and one without (must fail) -- the second reproduces the
   exact defect this check exists to catch.
@@ -181,9 +185,7 @@ A consuming repository owns a thin caller workflow (not part of this repository)
 3. Grants `id-token: write` at its own job level, in addition to this reusable workflow
    granting it internally -- npm Trusted Publishing requires both.
 4. Pins this repository's `release.yml` to a full commit SHA, same as the CI caller
-   contract, and passes that **same SHA** as the `toolchain_ref` input -- this workflow
-   cannot read its own defining repository's ref at run time (see
-   [Release toolchain](#release-toolchain) below), so the caller must state it twice.
+   contract.
 5. Keeps `package.json`'s `version` at `0.0.0-development` in source control; this
    workflow refuses to release otherwise.
 6. Before a manual `workflow_dispatch` retry, checks npm (does this version already
@@ -210,21 +212,43 @@ deliberately excluded from this repository's own workspace (`pnpm-workspace.yaml
 not list it, and it is installed with `--ignore-workspace`) so its dependency graph
 never mixes with, or gets bumped incidentally by, anything else here.
 
-The `release` job checks out this same repository a second time, at the caller-supplied
-`toolchain_ref`, into `__mikode_release_toolchain`, installs it there with
-`pnpm install --frozen-lockfile`, and invokes its `semantic-release` binary directly by
-path while `working-directory` stays the consumer's own directory. This works because
-Node resolves a bare `require('@semantic-release/...')` relative to the _requiring
-module's_ own location (inside the toolchain's `node_modules`), not the process's
-current working directory -- verified empirically against a scratch repository with no
-local `node_modules` at all, since this is exactly the load-bearing assumption the whole
-design depends on. No stored `NPM_TOKEN` is introduced by this: `@semantic-release/npm`
-still authenticates through the OIDC exchange already configured in the `release` job.
+The `release` job derives which commit of _this_ repository to pin the toolchain to from
+`job.workflow_sha` and `job.workflow_repository` -- the exact commit that defines the
+currently-running reusable workflow, for a job inside a `workflow_call`. It does not ask
+the caller for this: a caller only pins `uses: .../release.yml@<SHA>` once, same as the
+CI caller contract, and this workflow resolves its own toolchain commit from that same
+call. Both properties are validated (40-hex SHA, non-empty repository) before use.
+`actionlint` (1.7.12, current latest) does not model either property on the job context
+yet, so [`.github/actionlint.yaml`](.github/actionlint.yaml) carries a narrow, path-scoped
+ignore for exactly those two messages, with a removal note once actionlint catches up. Both
+context values, and the whole mechanism, were verified empirically with a throwaway
+`workflow_call` probe before being relied on here, not merely read about.
 
-A dedicated `toolchain_ref` input, rather than reusing `sha`, exists because the
-toolchain is pinned to a commit _of this repository_, not of the package being
-released -- the two are unrelated repositories and unrelated SHAs that happen to both be
-supplied by the same caller.
+The toolchain is checked out under `runner.temp` (not the consumer's own working
+directory) at that commit, installed there with
+`pnpm install --frozen-lockfile --ignore-workspace`, and the "Write semantic-release
+configuration" step also writes `release.config.cjs` there -- so nothing this workflow
+generates or installs can ever end up inside the consumer's own tree or its published
+tarball (the tarball-verification step also asserts `release.config.cjs` is absent from
+the pack list, as a regression guard). `semantic-release` is then invoked with
+`--extends` pointing at that config file: a plugin named in an extended config resolves
+relative to _that config file's own directory_, so plugins load from the toolchain's
+`node_modules` regardless of `working-directory` staying the consumer's own directory for
+git operations. This was verified empirically against a scratch repository with a real
+local bare Git remote and no local `node_modules` at all, not assumed from reading
+semantic-release's source.
+
+`scripts/test-release-toolchain.mjs` (run as part of `pnpm run check`, alongside the
+other three release-workflow tests) installs the real pinned toolchain, extracts and
+runs the real config-writer script into it, strips the `npm`/`github` plugins (the only
+two needing real network access), and runs a real `semantic-release --dry-run --no-ci
+--extends` against a scratch repository with an existing `v1.0.0` tag and one breaking
+`perf` commit -- asserting both the computed `2.0.0` version and the rendered
+`BREAKING CHANGES` / `Performance Improvements` notes headings. This is what actually
+caught `conventional-changelog-conventionalcommits@10` silently breaking
+`@semantic-release/release-notes-generator@14` with a "missing helper" error: no
+analyzer-only test could have, since the incompatibility was specific to notes
+generation.
 
 ## Developing the workflows
 
