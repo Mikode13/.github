@@ -125,6 +125,27 @@ every file the package declares as public -- every string reachable from `main`,
 CI while still publishing broken: nothing in the CI capability contract requires `dist/`
 to exist outside of a project's own `prepack` hook, which is easy to forget entirely.
 
+### npm authentication
+
+The release job performs the OIDC trusted-publishing exchange itself, in the
+"Authenticate to npm through OIDC trusted publishing" step, and appends the returned
+short-lived token to a project-level `.npmrc` in the consumer's working directory. The
+token is masked before it can reach any later log line, and npm always excludes `.npmrc`
+from a published tarball, so it cannot reach the artifact.
+
+This exists because `@semantic-release/npm@13.1.5` does **not** authenticate for you.
+Its `verify-auth.js` exchanges an OIDC token only to prove trusted publishing is
+possible, then returns early without writing any credential, leaving `npm publish` to
+repeat the exchange itself. In a real release of `@mikode13/tsconfig` on 2026-09-06 npm
+did not, and the publish failed with `ENEEDAUTH` **after** semantic-release had already
+pushed the `v1.0.0` tag -- a partial release needing manual reconciliation. A
+project-level `.npmrc` outranks the `--userconfig` file the plugin passes, so writing the
+credential there is what makes the plugin's own `npm publish` call authenticate.
+
+The publish step also sets `NPM_CONFIG_PROVENANCE`, because ADR 0011 requires public
+packages to be published with provenance and neither this workflow nor the plugin passes
+`--provenance`.
+
 ### Release configuration
 
 The commit-analyzer's custom release rules (which commit `type`s trigger which SemVer
@@ -148,6 +169,7 @@ already-irreversible release as failed.
 ### Testing this workflow without touching npm or GitHub for real
 
 `scripts/test-release-authorization.mjs`, `scripts/test-release-toolchain.mjs`,
+`scripts/test-release-npm-auth.mjs`,
 `scripts/test-release-semver-rules.mjs`, and `scripts/test-release-package-validation.mjs`
 (run as part of `pnpm run check`) each use
 [`scripts/lib/extractWorkflowStepScript.mjs`](scripts/lib/extractWorkflowStepScript.mjs)
@@ -165,6 +187,13 @@ sync:
   from the pinned toolchain (not a separate root-level copy), covering every ADR 0011
   partition plus the breaking-`perf`/breaking-`revert` regression cases the rule-ordering
   fix above exists for.
+- npm authentication is tested against a local stand-in for both endpoints the step
+  talks to, GitHub's OIDC token service and the registry's package-scoped exchange. It
+  covers a successful exchange (the credential lands where npm reads it, the token is
+  masked, the scoped package name is URL encoded, and the exchange presents the GitHub
+  OIDC token rather than the runner's request token), a consumer's existing `.npmrc`
+  surviving, a missing OIDC context failing loudly and making no network call, and a
+  rejected exchange naming the Trusted Publisher as the likely cause.
 - Package validation runs against two fixtures under `scripts/fixtures/`: one with a
   built `dist/` (must pass) and one without (must fail) -- the second reproduces the
   exact defect this check exists to catch.
@@ -193,10 +222,12 @@ A consuming repository owns a thin caller workflow (not part of this repository)
    release steps are not atomic, and a version that already exists on npm can never be
    reused or overwritten.
 7. Creates a GitHub Environment literally named `npm` in the consumer repository, since
-   this workflow's `release` job runs under `environment: npm`. Whether npm's Trusted
-   Publisher "Environment name" field must match a caller-level or reusable-workflow-level
-   environment is not confirmed by npm's own documentation for a `workflow_call` setup --
-   leave that field blank until a real release confirms which one npm actually checks.
+   this workflow's `release` job runs under `environment: npm`. **Leave npm's Trusted
+   Publisher "Environment name" field blank.** This was previously unconfirmed for a
+   `workflow_call` setup; a real release attempt from `@mikode13/tsconfig` on 2026-09-06
+   settled it. With the field blank, the package-scoped OIDC token exchange returned
+   `200` and npm accepted the token, so npm does not require the field to match the
+   environment the job declares.
 
 **npm Trusted Publisher configuration gotcha**: npm matches a Trusted Publisher entry
 against the **calling repository's own workflow filename** (for example
