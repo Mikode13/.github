@@ -106,7 +106,8 @@ jobs:
     name: release fixture
     uses: ./.github/workflows/ci.yml
     with:
-      profile: node
+      source: true
+      tests: true
       working_directory: fixtures/release
 
   required:
