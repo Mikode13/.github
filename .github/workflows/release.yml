@@ -11,10 +11,6 @@ on:
           recovery) -- this workflow independently re-verifies it regardless.
         required: true
         type: string
-      ci_workflow_name:
-        description: Display name of the CI workflow whose success gates release.
-        default: CI
-        type: string
       working_directory:
         description: Directory containing the project package.json.
         default: .
@@ -33,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      checks: read
     outputs:
       should-release: ${{ steps.verify.outputs.should-release }}
     steps:
@@ -58,30 +55,67 @@ jobs:
             exit 1
           fi
 
-      - name: Verify the commit has a successful CI run on the default branch
+      - name: Verify the commit has a successful CI / required check on main
         id: verify
-        shell: bash
+        shell: node {0}
         env:
-          CI_WORKFLOW_NAME: ${{ inputs.ci_workflow_name }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ inputs.sha }}
         run: |
-          runs="$(gh api "repos/${REPOSITORY}/actions/runs" \
-            -f head_sha="$SHA" \
-            -f branch=main \
-            -f event=push \
-            -f status=completed \
-            --paginate \
-            --jq '[.workflow_runs[] | select(.name == env.CI_WORKFLOW_NAME and .conclusion == "success" and .head_sha == env.SHA)] | length')"
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
 
-          if [[ "$runs" -lt 1 ]]; then
-            echo "::error::No successful '$CI_WORKFLOW_NAME' run found for $SHA on main"
-            echo "should-release=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
+          const sha = process.env.SHA;
+          const repository = process.env.REPOSITORY;
 
-          echo "should-release=true" >> "$GITHUB_OUTPUT"
+          function ghApiGet(path, params) {
+            const args = ['api', '--method', 'GET', path];
+            for (const [key, value] of Object.entries(params)) {
+              args.push('-f', `${key}=${value}`);
+            }
+            return JSON.parse(execFileSync('gh', args, { encoding: 'utf8' }));
+          }
+
+          // The workflow name is intentionally not configurable: a caller choosing which
+          // workflow's success gates its own release would defeat the point of the gate.
+          const runsResponse = ghApiGet(`repos/${repository}/actions/runs`, {
+            head_sha: sha,
+            branch: 'main',
+            event: 'push',
+            status: 'completed',
+          });
+
+          const run = (runsResponse.workflow_runs ?? []).find(
+            candidate =>
+              candidate.name === 'CI' &&
+              candidate.conclusion === 'success' &&
+              candidate.head_sha === sha,
+          );
+
+          if (!run) {
+            console.error(`::error::No successful push CI run found on main for ${sha}`);
+            process.exit(1);
+          }
+
+          // A successful workflow run is not the same guarantee as the exact status that
+          // gates merges. Verify the 'CI / required' check itself, in the same check
+          // suite as the run just confirmed.
+          const checkRunsResponse = ghApiGet(`repos/${repository}/commits/${sha}/check-runs`, {});
+
+          const requiredCheck = (checkRunsResponse.check_runs ?? []).find(
+            checkRun =>
+              checkRun.name === 'CI / required' &&
+              checkRun.conclusion === 'success' &&
+              checkRun.check_suite?.id === run.check_suite_id,
+          );
+
+          if (!requiredCheck) {
+            console.error(`::error::No successful 'CI / required' check found for ${sha}`);
+            process.exit(1);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'should-release=true\n');
 
   release:
     name: release
@@ -135,33 +169,96 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: pnpm install --frozen-lockfile
 
-      - name: Write semantic-release configuration
-        shell: bash
+      - name: Build the package
+        working-directory: ${{ inputs.working_directory }}
+        run: pnpm run --if-present build
+
+      - name: Verify the package tarball contains every declared entry point
+        shell: node {0}
         working-directory: ${{ inputs.working_directory }}
         run: |
-          # Keep this releaseRules array in sync with release/commit-analyzer-rules.json,
-          # which fixtures/release unit-tests against the real commit-analyzer plugin. A
-          # reusable workflow cannot read a sibling file from its own defining repository
-          # at run time (github.action_repository/action_ref only populate for a step's
-          # own `uses:` action, not for the workflow_call boundary) -- embedding the rules
-          # here means the caller's pinned commit SHA already guarantees which rules ran.
-          node -e "
-            const fs = require('node:fs');
-            const rules = [
-              { type: 'perf', release: false },
-              { type: 'revert', release: false },
-            ];
-            const config = {
-              branches: ['main'],
-              plugins: [
-                ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules: rules }],
-                ['@semantic-release/release-notes-generator', { preset: 'conventionalcommits' }],
-                '@semantic-release/npm',
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
+          function collectStringLeaves(node, into) {
+            if (typeof node === 'string') {
+              into.push(node);
+              return;
+            }
+            if (node && typeof node === 'object') {
+              for (const value of Object.values(node)) {
+                collectStringLeaves(value, into);
+              }
+            }
+          }
+
+          const declared = [];
+          for (const field of ['main', 'module', 'types', 'typings']) {
+            if (typeof pkg[field] === 'string') {
+              declared.push(pkg[field]);
+            }
+          }
+          if (pkg.exports) {
+            collectStringLeaves(pkg.exports, declared);
+          }
+          if (pkg.bin) {
+            collectStringLeaves(pkg.bin, declared);
+          }
+
+          const declaredEntries = [...new Set(declared.map(entry => entry.replace(/^\.\//, '')))];
+
+          const packOutput = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+            encoding: 'utf8',
+          });
+          const [report] = JSON.parse(packOutput);
+          const packedFiles = new Set(report.files.map(file => file.path));
+
+          const missing = declaredEntries.filter(entry => !packedFiles.has(entry));
+
+          if (missing.length > 0) {
+            console.error(
+              `::error::The packed tarball is missing declared entry point(s): ${missing.join(', ')}`,
+            );
+            process.exit(1);
+          }
+
+      - name: Write semantic-release configuration
+        shell: node {0}
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          const fs = require('node:fs');
+
+          // Order matters: commit-analyzer stops evaluating rules once it reaches
+          // 'major' (the highest severity), but a rule that resolves to `false` cannot
+          // ever be overridden by a later rule once matched (compareReleaseTypes ranks
+          // `false` as more severe than any real release type, since it has no index in
+          // RELEASE_TYPES). Without the breaking-change rule evaluated first, a breaking
+          // `perf` or `revert` commit would incorrectly produce no release at all.
+          const rules = [
+            { breaking: true, release: 'major' },
+            { type: 'perf', release: false },
+            { type: 'revert', release: false },
+          ];
+
+          const config = {
+            branches: ['main'],
+            plugins: [
+              ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules: rules }],
+              ['@semantic-release/release-notes-generator', { preset: 'conventionalcommits' }],
+              '@semantic-release/npm',
+              [
                 '@semantic-release/github',
+                // Disabled rather than granting issues:write/pull-requests:write: these
+                // defaults would let a hook 403 after npm publish and the GitHub Release
+                // already succeeded, reporting an irreversible release as failed.
+                { successComment: false, failComment: false, releasedLabels: false },
               ],
-            };
-            fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
-          "
+            ],
+          };
+
+          fs.writeFileSync('release.config.cjs', 'module.exports = ' + JSON.stringify(config) + ';\n');
 
       - name: Publish release
         working-directory: ${{ inputs.working_directory }}

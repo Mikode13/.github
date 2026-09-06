@@ -102,14 +102,6 @@ jobs:
       working_directory: fixtures/e2e
       lockfile_path: fixtures/e2e/pnpm-lock.yaml
 
-  release:
-    name: release fixture
-    uses: ./.github/workflows/ci.yml
-    with:
-      source: true
-      tests: true
-      working_directory: fixtures/release
-
   required:
     name: CI / required
     if: ${{ always() }}
@@ -121,7 +113,6 @@ jobs:
       - capabilities
       - docs_content
       - end_to_end
-      - release
     runs-on: ubuntu-latest
     permissions: {}
     env:
@@ -131,7 +122,6 @@ jobs:
       E2E_RESULT: ${{ needs.end_to_end.result }}
       NODE_RESULT: ${{ needs.node.result }}
       PACKAGE_RESULT: ${{ needs.package.result }}
-      RELEASE_RESULT: ${{ needs.release.result }}
       STATIC_RESULT: ${{ needs.static.result }}
     steps:
       - name: Verify validation jobs
@@ -146,8 +136,7 @@ jobs:
             "docs:$DOCS_RESULT" \
             "capabilities:$CAPABILITIES_RESULT" \
             "docs-content:$DOCS_CONTENT_RESULT" \
-            "end-to-end:$E2E_RESULT" \
-            "release:$RELEASE_RESULT"
+            "end-to-end:$E2E_RESULT"
           do
             job="${result%%:*}"
             status="${result#*:}"

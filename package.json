@@ -17,14 +17,19 @@
 		"lint": "eslint . --max-warnings 0",
 		"lint:fix": "eslint . --fix",
 		"ci:contract:check": "node scripts/validate-ci-status-contract.mjs",
-		"typecheck": "pnpm --filter @mikode13/ci-node-fixture run typecheck && pnpm --filter @mikode13/ci-package-fixture run typecheck && pnpm --filter @mikode13/ci-release-fixture run typecheck && node --check eslint.config.js && node --check prettier.config.mjs",
-		"test": "pnpm --filter @mikode13/ci-node-fixture test && pnpm --filter @mikode13/ci-package-fixture test && pnpm --filter @mikode13/ci-release-fixture test",
-		"check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run ci:contract:check"
+		"release:test:authorization": "node scripts/test-release-authorization.mjs",
+		"release:test:semver": "node scripts/test-release-semver-rules.mjs",
+		"release:test:package": "node scripts/test-release-package-validation.mjs",
+		"typecheck": "pnpm --filter @mikode13/ci-node-fixture run typecheck && pnpm --filter @mikode13/ci-package-fixture run typecheck && node --check eslint.config.js && node --check prettier.config.mjs",
+		"test": "pnpm --filter @mikode13/ci-node-fixture test && pnpm --filter @mikode13/ci-package-fixture test",
+		"check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run ci:contract:check && pnpm run release:test:authorization && pnpm run release:test:semver && pnpm run release:test:package"
 	},
 	"devDependencies": {
 		"@mikode13/code-quality": "0.1.0",
 		"@mikode13/code-style": "0.1.0",
 		"@mikode13/git-hooks": "0.1.0",
+		"@semantic-release/commit-analyzer": "13.0.1",
+		"conventional-changelog-conventionalcommits": "10.4.0",
 		"eslint": "10.8.0",
 		"prettier": "3.9.6"
 	}
