@@ -1,0 +1,8 @@
+name: Probe caller
+
+on:
+  workflow_dispatch:
+
+jobs:
+  call-probe:
+    uses: ./.github/workflows/probe-callee.yml
