@@ -1,7 +1,9 @@
 name: Probe caller
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - ci/pin-release-toolchain
 
 jobs:
   call-probe:
