@@ -136,9 +136,10 @@ callers.
 
 ### Known-good workflow releases
 
-| Release | Reusable workflow SHA                                                                                                             | Validation                                                                        |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Initial | [`78523ec52c5a598be22e8682cee47409bbe9b4a5`](https://github.com/Mikode13/.github/commit/78523ec52c5a598be22e8682cee47409bbe9b4a5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/32670985582) |
+| Release                | Reusable workflow SHA                                                                                                             | Validation                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Initial                | [`78523ec52c5a598be22e8682cee47409bbe9b4a5`](https://github.com/Mikode13/.github/commit/78523ec52c5a598be22e8682cee47409bbe9b4a5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/32670985582) |
+| Capability composition | [`813d80713d5aa375023421674719267028aa01e5`](https://github.com/Mikode13/.github/commit/813d80713d5aa375023421674719267028aa01e5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/33573224839) |
 
 Callers pin the full SHA from this table. A new validated release becomes the default for
 new or deliberately upgraded callers, while the preceding entry remains the immediate
