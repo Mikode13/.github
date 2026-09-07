@@ -27,7 +27,7 @@
 		"@mikode13/code-quality": "0.1.0",
 		"@mikode13/code-style": "0.1.0",
 		"@mikode13/git-hooks": "0.1.0",
-		"@mikode13/tsconfig": "1.0.0",
+		"@mikode13/tsconfig": "0.1.0",
 		"@types/node": "24.13.3",
 		"eslint": "10.8.0",
 		"prettier": "3.9.6",
