@@ -152,11 +152,11 @@ implements [ADR 0011](https://github.com/Mikode13/engineering/blob/main/adr/0011
 publish independently versioned npm packages with `semantic-release` from Conventional
 Commits, using npm's OIDC Trusted Publishing (no stored `NPM_TOKEN`).
 
-### Known-good release workflow
+### Release workflow revision
 
-| Release                  | `release.yml` SHA                                                                                                             | Validation                                                                                                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OIDC trusted publication | [`b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff`](https://github.com/Mikode13/.github/commit/b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff) | [Central CI](https://github.com/Mikode13/.github/actions/runs/34049802233) · [tsconfig release](https://github.com/Mikode13/tsconfig/actions/runs/34051020451) · [cross-platform release](https://github.com/Mikode13/cross-platform/actions/runs/34069916082) |
+| Release                  | `release.yml` SHA                                                                                                             | Validation |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| OIDC trusted publication | [`b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff`](https://github.com/Mikode13/.github/commit/b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff) | —          |
 
 ### Authorization
 
