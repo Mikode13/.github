@@ -41,6 +41,15 @@ importers:
         specifier: 13.1.0
         version: 13.1.0(supports-color@9.4.0)
 
+  fixtures/docs-source:
+    devDependencies:
+      '@mikode13/code-style':
+        specifier: 0.1.0
+        version: 0.1.0(prettier@3.9.6)
+      prettier:
+        specifier: 3.9.6
+        version: 3.9.6
+
   fixtures/node:
     devDependencies:
       '@mikode13/code-quality':

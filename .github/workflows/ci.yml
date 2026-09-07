@@ -347,6 +347,52 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: pnpm run docs:check
 
+      - name: Determine the documentation toolchain revision
+        id: toolchain
+        if: ${{ inputs.profile == '' }}
+        shell: bash
+        env:
+          JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          # The commit that defines this running reusable workflow, which is where the
+          # pinned documentation toolchain lives. The consumer's own repository is the
+          # wrong place to look: it does not contain docs-toolchain/, and the Documentation
+          # capability deliberately does not require the consumer to own Node.js tooling at
+          # all. Same mechanism, and the same actionlint gap, as release.yml -- see
+          # .github/actionlint.yaml.
+          if [[ ! "$JOB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::job.workflow_sha did not resolve to a 40-character commit SHA: $JOB_WORKFLOW_SHA"
+            exit 1
+          fi
+
+          if [[ -z "$JOB_WORKFLOW_REPOSITORY" ]]; then
+            echo "::error::job.workflow_repository did not resolve to a repository"
+            exit 1
+          fi
+
+          echo "sha=$JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository=$JOB_WORKFLOW_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the pinned documentation toolchain
+        if: ${{ inputs.profile == '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.toolchain.outputs.repository }}
+          ref: ${{ steps.toolchain.outputs.sha }}
+          # Must be relative: actions/checkout resolves path against GITHUB_WORKSPACE and
+          # refuses anything outside it. Moved out of the consumer's tree in the next step,
+          # exactly as release.yml does with its own toolchain.
+          path: .mikode-docs-toolchain
+          sparse-checkout: docs-toolchain
+          persist-credentials: false
+
+      - name: Move the documentation toolchain out of the consumer's tree
+        if: ${{ inputs.profile == '' }}
+        # Before the Markdown scan below, so a repository checked with working_directory '.'
+        # never finds the toolchain's own Markdown among its files.
+        run: mv "$GITHUB_WORKSPACE/.mikode-docs-toolchain" "$RUNNER_TEMP/mikode-docs-toolchain"
+
       - name: Install central documentation tooling
         if: ${{ inputs.profile == '' }}
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
@@ -355,10 +401,19 @@ jobs:
           runtime: node@24
           install: false
 
+      - name: Install the pinned documentation toolchain
+        if: ${{ inputs.profile == '' }}
+        working-directory: ${{ runner.temp }}/mikode-docs-toolchain/docs-toolchain
+        # --ignore-workspace: this checkout also carries this repository's own
+        # pnpm-workspace.yaml, which does not list docs-toolchain as a member. Its graph is
+        # frozen by its own committed lockfile, independently of everything else here.
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
       - name: Validate documentation formatting and structure
         if: ${{ inputs.profile == '' }}
         shell: bash
         env:
+          TOOLCHAIN_DIRECTORY: ${{ runner.temp }}/mikode-docs-toolchain/docs-toolchain
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           mapfile -d '' markdown_files < <(find "$WORKING_DIRECTORY" -type f -name '*.md' -print0)
@@ -368,34 +423,40 @@ jobs:
             exit 1
           fi
 
-          printf '{}\n' > "$RUNNER_TEMP/prettier.json"
-          cat > "$RUNNER_TEMP/markdownlint-cli2.jsonc" <<'JSON'
-          {
-            "config": {
-              "MD010": {
-                "code_blocks": false
-              },
-              "MD013": false
-            }
-          }
-          JSON
+          # The tools run from the toolchain directory so they resolve their own
+          # node_modules, so the files they are given must not be relative to the consumer.
+          absolute_files=()
+          for file in "${markdown_files[@]}"; do
+            absolute_files+=("$GITHUB_WORKSPACE/$file")
+          done
 
-          pnpm dlx prettier@3.9.6 --config "$RUNNER_TEMP/prettier.json" --check "${markdown_files[@]}"
-          pnpm dlx markdownlint-cli2@0.23.2 --config "$RUNNER_TEMP/markdownlint-cli2.jsonc" "${markdown_files[@]}"
+          # The shared formatting export, not Prettier's defaults. A repository whose
+          # Markdown is formatted by the Source capability is formatted by exactly this
+          # configuration, so the two capabilities cannot disagree about the same file.
+          # Invoked by path rather than through `pnpm exec`: the sparse checkout carries this
+          # repository's own root package.json and pnpm-workspace.yaml, and pnpm would resolve
+          # against that workspace and run its `prepare` script, which has no dependencies
+          # installed here. `--ignore-workspace` covers the install; nothing covers `exec`.
+          node "$TOOLCHAIN_DIRECTORY/node_modules/prettier/bin/prettier.cjs" \
+            --config "$TOOLCHAIN_DIRECTORY/prettier.config.mjs" \
+            --check "${absolute_files[@]}"
+
+          node "$TOOLCHAIN_DIRECTORY/node_modules/markdownlint-cli2/markdownlint-cli2-bin.mjs" \
+            --config "$TOOLCHAIN_DIRECTORY/.markdownlint-cli2.jsonc" \
+            "${absolute_files[@]}"
 
       - name: Validate internal documentation links
         if: ${{ inputs.profile == '' }}
         shell: bash
         env:
+          TOOLCHAIN_DIRECTORY: ${{ runner.temp }}/mikode-docs-toolchain/docs-toolchain
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
-          tools="$RUNNER_TEMP/remark-tools"
-          mkdir -p "$tools"
-          printf '{"private":true}\n' > "$tools/package.json"
-          pnpm --dir "$tools" add --save-exact remark-cli@12.0.1 remark-validate-links@13.1.0
-
-          cd "$tools"
-          pnpm exec remark --quiet --frail --use remark-validate-links "$GITHUB_WORKSPACE/$WORKING_DIRECTORY"
+          # cwd must be the toolchain: unified-engine resolves a plugin named with --use
+          # relative to the working directory, not to the remark binary.
+          cd "$TOOLCHAIN_DIRECTORY"
+          node node_modules/remark-cli/cli.js \
+            --quiet --frail --use remark-validate-links "$GITHUB_WORKSPACE/$WORKING_DIRECTORY"
 
   e2e:
     name: end-to-end (Node.js 24)

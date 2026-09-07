@@ -1,0 +1,21 @@
+{
+	"name": "@mikode13/ci-docs-source-fixture",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Contract fixture proving the Source and Documentation capabilities format the same Markdown identically. It owns Markdown only, so `check` is formatting alone.",
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"engines": {
+		"node": "^22.13.0 || ^24.0.0"
+	},
+	"packageManager": "pnpm@11.17.0",
+	"scripts": {
+		"preinstall": "npx only-allow pnpm",
+		"format:check": "prettier . --check",
+		"check": "pnpm run format:check"
+	},
+	"devDependencies": {
+		"@mikode13/code-style": "0.1.0",
+		"prettier": "3.9.6"
+	}
+}

@@ -20,7 +20,8 @@ This workflow revision supports these independently composable capabilities:
 - `tests` runs `pnpm test` on Node.js 22 and 24.
 - `build` runs `pnpm run build` on Node.js 22 and 24.
 - `package` runs `pnpm run pack:check` on Node.js 24.
-- `documentation` runs central Markdown formatting, structure, and internal-link checks.
+- `documentation` runs central Markdown formatting, structure, and internal-link checks,
+  using the shared `@mikode13/code-style` formatting export from a pinned toolchain.
 - `end_to_end` installs Playwright browsers and runs `pnpm run test:e2e`.
 
 The catalogue belongs to this immutable workflow revision. Future reviewed revisions may add
@@ -37,8 +38,8 @@ with:
 ```
 
 The Documentation capability does not require the consuming repository to own Node.js, pnpm,
-`package.json`, or a pnpm lockfile. The central workflow may use its own tooling to validate
-the repository's Markdown files.
+`package.json`, or a pnpm lockfile. The central workflow brings its own tooling to validate
+the repository's Markdown files -- see [Documentation toolchain](#documentation-toolchain).
 
 The workflow always produces an aggregate job named `required`. A thin caller names its
 reusable-workflow job `CI`, which gives the organization ruleset the stable status context
@@ -47,6 +48,54 @@ reusable-workflow job `CI`, which gives the organization ruleset the stable stat
 This repository exercises several caller shapes in one validation workflow instead of using
 a single thin caller. Its own final aggregate is named `CI / required` directly so local
 validation reports the same protected status as consuming repositories.
+
+### Documentation toolchain
+
+[`docs-toolchain/`](docs-toolchain) holds a `package.json` and its own `pnpm-lock.yaml`,
+pinning Prettier, `markdownlint-cli2`, `remark-cli`, `remark-validate-links`, and
+`@mikode13/code-style` exactly. Like [`release-toolchain/`](#release-toolchain), it is
+deliberately excluded from this repository's own workspace and installed with
+`--ignore-workspace`, so its dependency graph is frozen independently of everything else
+here.
+
+The Documentation job resolves which commit of _this_ repository to take the toolchain from
+using `job.workflow_sha` and `job.workflow_repository`, checks it out into
+`.mikode-docs-toolchain`, and moves it to `runner.temp` before scanning for Markdown -- the
+same checkout-and-move mechanics, for the same `actions/checkout` reason, as the release
+toolchain. The move happens before the scan so a repository validated with
+`working_directory: .` never finds the toolchain's own files among its own.
+
+The tools are invoked by path (`node .../node_modules/prettier/bin/prettier.cjs`) rather
+than through `pnpm exec`. A cone-mode sparse checkout still brings the repository's
+root-level files along, so `pnpm-workspace.yaml` and this repository's own `package.json`
+land next to the toolchain; `pnpm exec` would resolve against that workspace and run its
+`prepare` script, which has nothing installed there. `--ignore-workspace` covers the
+install step and nothing covers `exec`.
+
+The toolchain owns two configuration files, both committed and reviewable:
+
+- [`docs-toolchain/prettier.config.mjs`](docs-toolchain/prettier.config.mjs) re-exports
+  `@mikode13/code-style/prettier`, the same shared export the Source capability resolves.
+  It replaced an inline `printf '{}'` that gave Prettier its own defaults: the Documentation
+  capability formatted embedded code blocks with spaces and double quotes while Source
+  formatted the same file with tabs and single quotes, so any repository with Markdown code
+  examples could not satisfy both. No repository had hit it only because no caller yet
+  combined `documentation` with Markdown code samples.
+- [`docs-toolchain/.markdownlint-cli2.jsonc`](docs-toolchain/.markdownlint-cli2.jsonc)
+  disables `MD010` inside fenced code blocks, because the shared formatter indents embedded
+  code with tabs, and disables `MD013`, because line length belongs to `printWidth`.
+
+`fixtures/docs-source` is validated by the Source **and** Documentation capabilities in the
+same run (the `source and documentation fixture` job), over Markdown whose code blocks
+Prettier's defaults would rewrite. `scripts/test-docs-formatting.mjs`, part of
+`pnpm run check`, proves the same agreement offline: it installs the pinned toolchain, checks
+that both configurations resolve to one option object, runs the real formatter and linter
+over the fixture, asserts the workflow step neither writes its own Prettier configuration nor
+resolves tooling at runtime, and asserts that the fixture still fails under Prettier's
+defaults -- so the fixture cannot quietly stop being a regression test.
+
+The legacy `docs` profile is unchanged: it still installs the repository's own dependencies
+and runs its own `docs:check`, so repository-specific document invariants stay composable.
 
 ### Legacy profiles
 
@@ -321,7 +370,9 @@ pnpm test
 ```
 
 The content-only documentation fixture deliberately has no `package.json` or pnpm lockfile.
-It verifies the boundary introduced by ADR 0015 rather than simulating project tooling.
+It verifies the boundary introduced by ADR 0015 rather than simulating project tooling. The
+source-and-documentation fixture is the opposite case: it exists to prove the two
+capabilities format the same Markdown identically.
 
 Pull requests additionally run actionlint and every retained profile and capability
 fixture through the reusable CI workflow itself. The outer `required` job covers all of

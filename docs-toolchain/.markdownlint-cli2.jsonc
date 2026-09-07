@@ -1,0 +1,13 @@
+{
+	"config": {
+		// MD010 (no-hard-tabs) stays on for prose but is disabled inside fenced code blocks:
+		// the shared formatter indents embedded code with tabs, so enforcing spaces there
+		// would contradict the formatter this same job runs.
+		"MD010": {
+			"code_blocks": false,
+		},
+		// MD013 (line-length) is off: `printWidth` belongs to the shared formatter, and a
+		// second opinion about line length here could only ever disagree with it.
+		"MD013": false,
+	},
+}
