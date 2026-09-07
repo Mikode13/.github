@@ -37,6 +37,9 @@ jobs:
       - name: Run repository checks
         run: pnpm run check
 
+      - name: Run the offline workflow test suite
+        run: pnpm test
+
       - name: Install actionlint
         shell: bash
         env:
@@ -148,10 +151,13 @@ jobs:
           cache: true
           install: false
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Verify the release toolchain mechanics end to end
         env:
           RELEASE_TOOLCHAIN_DIRECTORY: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
-        run: node scripts/test-release-toolchain.mjs
+        run: pnpm exec vitest run --project integration tests/integration/releaseToolchain.integration.test.ts
 
   required:
     name: CI / required

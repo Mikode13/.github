@@ -31,14 +31,20 @@ does. Two things follow:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run check   # formatting, linting, type checks, and every offline workflow test
-pnpm test        # the fixture suites
+pnpm run check            # formatting, linting, type checks, CI status contract
+pnpm test                 # every offline Vitest project: tests/integration + the fixtures
+pnpm run test:integration # this repository's own workflow suites alone
+pnpm run test:fixtures    # the contract fixtures' own suites alone
 ```
 
-`pnpm run check` runs the workflow tests under `scripts/`. They are deliberately real:
-they install the actual pinned toolchains and execute the actual scripts extracted from
-the workflow files rather than hand-copied duplicates, because the defects worth catching
-here live in how real tools compose, not in logic a unit test could isolate.
+The suites under `tests/integration/` are deliberately real: they install the actual
+pinned toolchains and execute the actual scripts extracted from the workflow files rather
+than hand-copied duplicates, because the defects worth catching here live in how real
+tools compose, not in logic a unit test could isolate. They are integration tests by the
+testing standard's own definition, and they are slow for that reason.
+
+`check` never runs them. It is formatting, linting and type checking plus the static CI
+status contract validation, as the git workflow standard requires.
 
 Pull requests additionally run `actionlint` and exercise every retained profile and
 capability through the reusable workflow itself, in `validate-workflows.yml`. A fixture
@@ -58,6 +64,9 @@ cannot invoke a real action.
   Markdown scan and published tarball.
 - A capability must not silently redefine what another one already means. Formatting is
   owned by `@mikode13/code-style`, wherever it runs.
+- The integration project runs with `fileParallelism: false`. Several suites install into
+  and write files inside the same toolchain directory, so parallel test files race on
+  shared on-disk state. Do not re-enable it without giving each suite its own directory.
 
 ## Engineering standards
 
