@@ -1,0 +1,12 @@
+{
+	"extends": "@mikode13/tsconfig/node",
+	"compilerOptions": {
+		"types": ["node"],
+		"noEmit": true,
+		// Vitest resolves and transforms TypeScript itself, so the suites import their
+		// support modules by their real `.ts` path rather than a `.js` path that never
+		// exists on disk. Safe with `noEmit`: nothing here is compiled for distribution.
+		"allowImportingTsExtensions": true
+	},
+	"include": ["**/*.ts"]
+}

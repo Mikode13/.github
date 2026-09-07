@@ -9,3 +9,6 @@ allowBuilds:
   '@mikode13/tsconfig': false
   esbuild: true
   unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - '@mikode13/tsconfig@1.0.0'

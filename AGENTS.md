@@ -31,14 +31,19 @@ does. Two things follow:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run check   # formatting, linting, type checks, and every offline workflow test
-pnpm test        # the fixture suites
+pnpm run check          # formatting, linting, type checks, CI status contract
+pnpm test               # the offline workflow suites in tests/integration
+pnpm run test:fixtures  # the contract fixtures' own suites
 ```
 
-`pnpm run check` runs the workflow tests under `scripts/`. They are deliberately real:
-they install the actual pinned toolchains and execute the actual scripts extracted from
-the workflow files rather than hand-copied duplicates, because the defects worth catching
-here live in how real tools compose, not in logic a unit test could isolate.
+The suites under `tests/integration/` are deliberately real: they install the actual
+pinned toolchains and execute the actual scripts extracted from the workflow files rather
+than hand-copied duplicates, because the defects worth catching here live in how real
+tools compose, not in logic a unit test could isolate. They are integration tests by the
+testing standard's own definition, and they are slow for that reason.
+
+`check` never runs them. It is formatting, linting and type checking plus the static CI
+status contract validation, as the git workflow standard requires.
 
 Pull requests additionally run `actionlint` and exercise every retained profile and
 capability through the reusable workflow itself, in `validate-workflows.yml`. A fixture

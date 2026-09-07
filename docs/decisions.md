@@ -45,3 +45,44 @@ from the consuming repository.
 
 **Lesson.** An empty configuration is a configuration. `{}` reads as "no opinion" and behaves
 as "the tool's opinion instead of ours".
+
+## The workflow suites run under Vitest, and `check` no longer runs them
+
+**Decision.** The five `scripts/test-*.mjs` files become Vitest suites under
+`tests/integration/`, `pnpm test` runs them, and `pnpm run check` runs formatting, linting,
+type checking and the static CI status contract validation only. The contract fixtures'
+own suites move to `pnpm run test:fixtures`.
+
+**Context.** The previous arrangement broke two active standards at once. The testing
+standard puts this repository in scope — it contains executable logic — and requires Vitest
+with a fixed `tests/` layout; these were hand-rolled `node:assert` scripts. The git workflow
+standard requires a `check` script that runs formatting, linting and type checking and
+**must not** run tests; `check` chained five of them.
+
+The tests themselves were never the problem. They install real pinned toolchains, extract
+the literal scripts out of the workflow files, and run a real `semantic-release` dry run
+against a scratch Git repository — that is what the defects worth catching here need, and
+none of it changed. Only the runner, the layout and the script that invokes them did.
+
+`scripts/validate-ci-status-contract.mjs` deliberately stays a script inside `check`. It
+asserts that job names in the workflow files match the required status contract: a static
+consistency check over repository artifacts, in the same family as `actionlint`, not a
+behavioural test.
+
+**Consequences.** `pre-push` now runs the real suites through `pnpm test` rather than
+through `check`, and the `workflow and repository checks` job gained an explicit `pnpm test`
+step — without it the migration would have silently removed these tests from CI, since
+nothing else ran them there. The `release toolchain mechanics` job installs dependencies and
+invokes the same suite through Vitest with `RELEASE_TOOLCHAIN_DIRECTORY`, unchanged in
+substance. Suites need `allowImportingTsExtensions`, because Vitest resolves TypeScript
+itself and the support modules are imported by their real path.
+
+Two support artifacts keep extensions the testing standard's suffix table does not list.
+`tests/support/fakes/gh.fake.cjs` is copied to an extensionless `gh` executable on a child
+process's `PATH`, and an extensionless script only defaults to CommonJS without a sibling
+`package.json`; a `.ts` file cannot be executed by Node at all. The package fixtures under
+`tests/support/fixtures/` are directory trees whose files are the fixture — a `dist/index.js`
+that must be JavaScript on disk. The mandated roots and categories are honoured; only the
+extensions differ, because the standard's table describes test _modules_ and has no category
+for an on-disk asset that must be executable. Worth raising against the standard rather than
+quietly repeating.

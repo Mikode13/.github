@@ -87,8 +87,9 @@ The toolchain owns two configuration files, both committed and reviewable:
 
 `fixtures/docs-source` is validated by the Source **and** Documentation capabilities in the
 same run (the `source and documentation fixture` job), over Markdown whose code blocks
-Prettier's defaults would rewrite. `scripts/test-docs-formatting.mjs`, part of
-`pnpm run check`, proves the same agreement offline: it installs the pinned toolchain, checks
+Prettier's defaults would rewrite.
+[`tests/integration/documentationFormatting.integration.test.ts`](tests/integration/documentationFormatting.integration.test.ts),
+part of `pnpm test`, proves the same agreement offline: it installs the pinned toolchain, checks
 that both configurations resolve to one option object, runs the real formatter and linter
 over the fixture, asserts the workflow step neither writes its own Prettier configuration nor
 resolves tooling at runtime, and asserts that the fixture still fails under Prettier's
@@ -217,17 +218,15 @@ already-irreversible release as failed.
 
 ### Testing this workflow without touching npm or GitHub for real
 
-`scripts/test-release-authorization.mjs`, `scripts/test-release-toolchain.mjs`,
-`scripts/test-release-npm-auth.mjs`,
-`scripts/test-release-semver-rules.mjs`, and `scripts/test-release-package-validation.mjs`
-(run as part of `pnpm run check`) each use
-[`scripts/lib/extractWorkflowStepScript.mjs`](scripts/lib/extractWorkflowStepScript.mjs)
+The suites under [`tests/integration/`](tests/integration) (run by `pnpm test`) each use
+[`tests/support/fixtures/workflowStep.fixture.ts`](tests/support/fixtures/workflowStep.fixture.ts)
 to pull the literal script out of one `release.yml` step and execute it directly -- the
 same text that ships in production, not a hand-copied duplicate that can drift out of
 sync:
 
-- Authorization is tested against [`scripts/lib/fakeGh.cjs`](scripts/lib/fakeGh.cjs), a
-  scriptable fake `gh` binary, covering a matching SHA, a mismatched SHA, no run on
+- Authorization is tested against
+  [`tests/support/fakes/gh.fake.cjs`](tests/support/fakes/gh.fake.cjs), a scriptable fake
+  `gh` binary, covering a matching SHA, a mismatched SHA, no run on
   `main`/`push`, a failed CI run, a missing or failed `CI / required` check, a check
   belonging to a different check suite, and that every call used `GET`.
 - The toolchain is tested end to end against a real local Git remote -- see
@@ -243,8 +242,8 @@ sync:
   OIDC token rather than the runner's request token), a consumer's existing `.npmrc`
   surviving, a missing OIDC context failing loudly and making no network call, and a
   rejected exchange naming the Trusted Publisher as the likely cause.
-- Package validation runs against two fixtures under `scripts/fixtures/`: one with a
-  built `dist/` (must pass) and one without (must fail) -- the second reproduces the
+- Package validation runs against two fixtures under `tests/support/fixtures/`: one with
+  a built `dist/` (must pass) and one without (must fail) -- the second reproduces the
   exact defect this check exists to catch.
 
 The workflow's own `workflow_run`/OIDC/publish path is not exercised by this repository's
@@ -326,9 +325,9 @@ directory_, so plugins load from the toolchain's `node_modules` regardless of
 verified empirically against a scratch repository with a real local bare Git remote and
 no local `node_modules` at all, not assumed from reading semantic-release's source.
 
-`scripts/test-release-toolchain.mjs` (run as part of `pnpm run check`, alongside the
-other three release-workflow tests) installs the real pinned toolchain, extracts and
-runs the real config-writer script into it, strips the `npm`/`github` plugins (the only
+[`tests/integration/releaseToolchain.integration.test.ts`](tests/integration/releaseToolchain.integration.test.ts)
+(run by `pnpm test`, alongside the other release-workflow suites) installs the real pinned
+toolchain, extracts and runs the real config-writer script into it, strips the `npm`/`github` plugins (the only
 two needing real network access), and runs a real `semantic-release --dry-run --no-ci
 --extends` against a scratch repository with an existing `v1.0.0` tag and one breaking
 `perf` commit -- asserting both the computed `2.0.0` version and the rendered
@@ -338,7 +337,7 @@ caught `conventional-changelog-conventionalcommits@10` silently breaking
 analyzer-only test could have, since the incompatibility was specific to notes
 generation.
 
-That script's own child processes are run with a scrubbed environment (every
+That suite's own child processes are run with a scrubbed environment (every
 `CI`/`GITHUB_*`/`RUNNER_*`/`ACTIONS_*` variable stripped, everything else preserved) --
 without it, running the test inside GitHub Actions leaks the outer job's own
 `GITHUB_REF` (a pull request's merge ref) into the inner dry-run's branch detection,
@@ -349,14 +348,14 @@ creation, rather than trusting `init.defaultBranch`: this repository's own git a
 GitHub Actions runner's git disagreed on that default, which is exactly the kind of gap
 that only shows up once code actually runs somewhere else.
 
-The same script also runs a second time, unmodified, as **`release toolchain
+The same suite also runs a second time, unmodified, as **`release toolchain
 mechanics`** in `validate-workflows.yml` -- pointed at a toolchain installed via the
 real `actions/checkout` + move dance described above (via the
 `RELEASE_TOOLCHAIN_DIRECTORY` environment variable) against this repository's own
 `github.sha`, on every pull request. This is the job that would have caught the
-`GITHUB_WORKSPACE` defect above: a plain `node scripts/test-release-toolchain.mjs` run
-never invokes the real checkout action at all, so no purely offline test could have
-caught a bug that only exists in that action's own runtime behavior.
+`GITHUB_WORKSPACE` defect above: running the suite in place never invokes the real
+checkout action at all, so no purely offline test could have caught a bug that only
+exists in that action's own runtime behavior.
 
 ## Developing the workflows
 
@@ -365,9 +364,15 @@ capability composition with contract fixtures:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run check
-pnpm test
+pnpm run check          # formatting, linting, type checks, CI status contract
+pnpm test               # the offline workflow suites in tests/integration
+pnpm run test:fixtures  # the contract fixtures' own suites
 ```
+
+`check` is formatting, linting and type checking only, as the git workflow standard
+requires; everything that asserts behaviour lives in `pnpm test`. `test:fixtures` is
+separate because those suites belong to the contract fixtures rather than to this
+repository -- CI runs them through the reusable workflow itself.
 
 The content-only documentation fixture deliberately has no `package.json` or pnpm lockfile.
 It verifies the boundary introduced by ADR 0015 rather than simulating project tooling. The
@@ -376,7 +381,7 @@ capabilities format the same Markdown identically.
 
 Pull requests additionally run actionlint and every retained profile and capability
 fixture through the reusable CI workflow itself. The outer `required` job covers all of
-those checks. `pnpm run check` also runs the release workflow's own tests -- see
+those checks. `pnpm test` covers the release and documentation workflow suites -- see
 [Testing this workflow without touching npm or GitHub for real](#testing-this-workflow-without-touching-npm-or-github-for-real)
 above.
 
