@@ -10,6 +10,10 @@ config-variables: null
 # actionlint's schema catches up.
 # https://github.com/rhysd/actionlint/blob/v1.7.12/docs/config.md#ignore-glob-pattern
 paths:
+  .github/workflows/ci.yml:
+    ignore:
+      - 'property "workflow_sha" is not defined in object type'
+      - 'property "workflow_repository" is not defined in object type'
   .github/workflows/release.yml:
     ignore:
       - 'property "workflow_sha" is not defined in object type'

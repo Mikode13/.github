@@ -1,0 +1,15 @@
+{
+	"name": "@mikode13/docs-toolchain",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Pinned, reproducible toolchain the reusable CI workflow uses for the Documentation capability. Not part of the pnpm-workspace.yaml workspace: it is checked out and installed independently, at the caller's pinned commit SHA, so a documentation run never resolves fresh transitive dependencies.",
+	"license": "SEE LICENSE IN ../LICENSE",
+	"packageManager": "pnpm@11.17.0",
+	"dependencies": {
+		"@mikode13/code-style": "0.1.0",
+		"markdownlint-cli2": "0.23.2",
+		"prettier": "3.9.6",
+		"remark-cli": "12.0.1",
+		"remark-validate-links": "13.1.0"
+	}
+}

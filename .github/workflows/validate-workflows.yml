@@ -94,6 +94,17 @@ jobs:
       documentation: true
       working_directory: fixtures/docs-content
 
+  docs_source:
+    name: source and documentation fixture
+    # Both capabilities over the same Markdown. Source formats it with the repository's own
+    # resolution of @mikode13/code-style; Documentation formats it with the pinned central
+    # toolchain. They must agree, and this is the only place that proves it end to end.
+    uses: ./.github/workflows/ci.yml
+    with:
+      documentation: true
+      source: true
+      working_directory: fixtures/docs-source
+
   end_to_end:
     name: end-to-end fixture
     uses: ./.github/workflows/ci.yml
@@ -152,6 +163,7 @@ jobs:
       - docs
       - capabilities
       - docs_content
+      - docs_source
       - end_to_end
       - toolchain_mechanics
     runs-on: ubuntu-latest
@@ -160,6 +172,7 @@ jobs:
       CAPABILITIES_RESULT: ${{ needs.capabilities.result }}
       DOCS_CONTENT_RESULT: ${{ needs.docs_content.result }}
       DOCS_RESULT: ${{ needs.docs.result }}
+      DOCS_SOURCE_RESULT: ${{ needs.docs_source.result }}
       E2E_RESULT: ${{ needs.end_to_end.result }}
       NODE_RESULT: ${{ needs.node.result }}
       PACKAGE_RESULT: ${{ needs.package.result }}
@@ -178,6 +191,7 @@ jobs:
             "docs:$DOCS_RESULT" \
             "capabilities:$CAPABILITIES_RESULT" \
             "docs-content:$DOCS_CONTENT_RESULT" \
+            "docs-source:$DOCS_SOURCE_RESULT" \
             "end-to-end:$E2E_RESULT" \
             "toolchain-mechanics:$TOOLCHAIN_MECHANICS_RESULT"
           do
