@@ -136,9 +136,10 @@ callers.
 
 ### Known-good workflow releases
 
-| Release | Reusable workflow SHA                                                                                                             | Validation                                                                        |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Initial | [`78523ec52c5a598be22e8682cee47409bbe9b4a5`](https://github.com/Mikode13/.github/commit/78523ec52c5a598be22e8682cee47409bbe9b4a5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/32670985582) |
+| Release                | Reusable workflow SHA                                                                                                             | Validation                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Initial                | [`78523ec52c5a598be22e8682cee47409bbe9b4a5`](https://github.com/Mikode13/.github/commit/78523ec52c5a598be22e8682cee47409bbe9b4a5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/32670985582) |
+| Capability composition | [`813d80713d5aa375023421674719267028aa01e5`](https://github.com/Mikode13/.github/commit/813d80713d5aa375023421674719267028aa01e5) | [Default-branch CI](https://github.com/Mikode13/.github/actions/runs/33573224839) |
 
 Callers pin the full SHA from this table. A new validated release becomes the default for
 new or deliberately upgraded callers, while the preceding entry remains the immediate
@@ -150,6 +151,12 @@ The reusable workflow at [`.github/workflows/release.yml`](.github/workflows/rel
 implements [ADR 0011](https://github.com/Mikode13/engineering/blob/main/adr/0011-use-semantic-release-for-automated-npm-publication.md):
 publish independently versioned npm packages with `semantic-release` from Conventional
 Commits, using npm's OIDC Trusted Publishing (no stored `NPM_TOKEN`).
+
+### Release workflow revision
+
+| Release                  | `release.yml` SHA                                                                                                                 | Validation |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| OIDC trusted publication | [`b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff`](https://github.com/Mikode13/.github/commit/b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff) | —          |
 
 ### Authorization
 
