@@ -8,8 +8,8 @@ importers:
   .:
     dependencies:
       '@mikode13/code-style':
-        specifier: 0.1.0
-        version: 0.1.0(prettier@3.9.6)
+        specifier: 1.0.0
+        version: 1.0.0(prettier@3.9.6)
       markdownlint-cli2:
         specifier: 0.23.2
         version: 0.23.2(supports-color@9.4.0)
@@ -45,12 +45,12 @@ packages:
       }
     engines: { node: '>=12' }
 
-  '@mikode13/code-style@0.1.0':
+  '@mikode13/code-style@1.0.0':
     resolution:
       {
-        integrity: sha512-YxaezqA4UeAFH1UyBryAj9lPce7xk6Cl8z2J9rPgBBBCZk5LtP9yxqr2tvs1swB9b2syyT1gBz3ApJdlyyUCDQ==,
+        integrity: sha512-6p4LIIP8D4hj25lrwE51aq+mngupVd46LvmFwVPflAGuHf7DXoTP/RTtLb66Vv9wclzO45H6aDBLxpA4DjP+Qg==,
       }
-    engines: { node: '>=20' }
+    engines: { node: ^22.13.0 || ^24.0.0 }
     peerDependencies:
       prettier: ^3.5.0
 
@@ -1605,7 +1605,7 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
-  '@mikode13/code-style@0.1.0(prettier@3.9.6)':
+  '@mikode13/code-style@1.0.0(prettier@3.9.6)':
     dependencies:
       prettier: 3.9.6
 

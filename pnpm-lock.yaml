@@ -11,8 +11,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0(@typescript-eslint/utils@8.65.0(eslint@10.8.0(jiti@2.6.1)(supports-color@9.4.0))(supports-color@9.4.0)(typescript@6.0.3))(eslint@10.8.0(jiti@2.6.1)(supports-color@9.4.0))(supports-color@9.4.0)
       '@mikode13/code-style':
-        specifier: 0.1.0
-        version: 0.1.0(prettier@3.9.6)
+        specifier: 1.0.0
+        version: 1.0.0(prettier@3.9.6)
       '@mikode13/git-hooks':
         specifier: 0.1.0
         version: 0.1.0(@types/node@24.13.3)(typescript@6.0.3)
@@ -26,8 +26,8 @@ importers:
   fixtures/docs:
     devDependencies:
       '@mikode13/code-style':
-        specifier: 0.1.0
-        version: 0.1.0(prettier@3.9.6)
+        specifier: 1.0.0
+        version: 1.0.0(prettier@3.9.6)
       markdownlint-cli2:
         specifier: 0.23.2
         version: 0.23.2(supports-color@9.4.0)
@@ -44,8 +44,8 @@ importers:
   fixtures/docs-source:
     devDependencies:
       '@mikode13/code-style':
-        specifier: 0.1.0
-        version: 0.1.0(prettier@3.9.6)
+        specifier: 1.0.0
+        version: 1.0.0(prettier@3.9.6)
       prettier:
         specifier: 3.9.6
         version: 3.9.6
@@ -56,8 +56,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0(@typescript-eslint/utils@8.65.0(eslint@10.8.0(jiti@2.6.1)(supports-color@9.4.0))(supports-color@9.4.0)(typescript@6.0.3))(eslint@10.8.0(jiti@2.6.1)(supports-color@9.4.0))(supports-color@9.4.0)
       '@mikode13/code-style':
-        specifier: 0.1.0
-        version: 0.1.0(prettier@3.9.6)
+        specifier: 1.0.0
+        version: 1.0.0(prettier@3.9.6)
       '@mikode13/tsconfig':
         specifier: 0.1.0
         version: 0.1.0
@@ -86,8 +86,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0(@typescript-eslint/utils@8.65.0(eslint@10.8.0(jiti@2.6.1)(supports-color@9.4.0))(supports-color@9.4.0)(typescript@6.0.3))(eslint@10.8.0(jiti@2.6.1)(supports-color@9.4.0))(supports-color@9.4.0)
       '@mikode13/code-style':
-        specifier: 0.1.0
-        version: 0.1.0(prettier@3.9.6)
+        specifier: 1.0.0
+        version: 1.0.0(prettier@3.9.6)
       '@mikode13/tsconfig':
         specifier: 0.1.0
         version: 0.1.0
@@ -564,12 +564,12 @@ packages:
     peerDependencies:
       eslint: ^10.8.0
 
-  '@mikode13/code-style@0.1.0':
+  '@mikode13/code-style@1.0.0':
     resolution:
       {
-        integrity: sha512-YxaezqA4UeAFH1UyBryAj9lPce7xk6Cl8z2J9rPgBBBCZk5LtP9yxqr2tvs1swB9b2syyT1gBz3ApJdlyyUCDQ==,
+        integrity: sha512-6p4LIIP8D4hj25lrwE51aq+mngupVd46LvmFwVPflAGuHf7DXoTP/RTtLb66Vv9wclzO45H6aDBLxpA4DjP+Qg==,
       }
-    engines: { node: '>=20' }
+    engines: { node: ^22.13.0 || ^24.0.0 }
     peerDependencies:
       prettier: ^3.5.0
 
@@ -4374,7 +4374,7 @@ snapshots:
       - eslint-plugin-import
       - supports-color
 
-  '@mikode13/code-style@0.1.0(prettier@3.9.6)':
+  '@mikode13/code-style@1.0.0(prettier@3.9.6)':
     dependencies:
       prettier: 3.9.6
 

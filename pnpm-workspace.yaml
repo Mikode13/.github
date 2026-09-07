@@ -9,3 +9,11 @@ allowBuilds:
   '@mikode13/tsconfig': false
   esbuild: true
   unrs-resolver: true
+
+# A first-party release published from Mikode13/code-style. The age gate exists to slow
+# down unreviewed third-party updates, not our own, and 1.0.0 changes no formatting option
+# relative to 0.1.0 -- it is the same object under a stable major. Remove this entry once
+# the version is older than the configured window; leaving it behind exempts that version
+# from the gate permanently.
+minimumReleaseAgeExclude:
+  - '@mikode13/code-style@1.0.0'
