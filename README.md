@@ -364,15 +364,16 @@ capability composition with contract fixtures:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run check          # formatting, linting, type checks, CI status contract
-pnpm test               # the offline workflow suites in tests/integration
-pnpm run test:fixtures  # the contract fixtures' own suites
+pnpm run check            # formatting, linting, type checks, CI status contract
+pnpm test                 # every offline Vitest project: tests/integration + the fixtures
+pnpm run test:integration # this repository's own workflow suites alone
+pnpm run test:fixtures    # the contract fixtures' own suites alone
 ```
 
 `check` is formatting, linting and type checking only, as the git workflow standard
-requires; everything that asserts behaviour lives in `pnpm test`. `test:fixtures` is
-separate because those suites belong to the contract fixtures rather than to this
-repository -- CI runs them through the reusable workflow itself.
+requires; everything that asserts behaviour lives in `pnpm test`, which aggregates every
+applicable offline Vitest project so `pre-push` covers all of them. The focused scripts
+exist for iterating on one boundary.
 
 The content-only documentation fixture deliberately has no `package.json` or pnpm lockfile.
 It verifies the boundary introduced by ADR 0015 rather than simulating project tooling. The

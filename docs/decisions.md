@@ -50,8 +50,9 @@ as "the tool's opinion instead of ours".
 
 **Decision.** The five `scripts/test-*.mjs` files become Vitest suites under
 `tests/integration/`, `pnpm test` runs them, and `pnpm run check` runs formatting, linting,
-type checking and the static CI status contract validation only. The contract fixtures'
-own suites move to `pnpm run test:fixtures`.
+type checking and the static CI status contract validation only. `pnpm test` aggregates
+every offline Vitest project in the workspace, this repository's own suites and the
+contract fixtures' alike, with `test:integration` and `test:fixtures` as focused scripts.
 
 **Context.** The previous arrangement broke two active standards at once. The testing
 standard puts this repository in scope — it contains executable logic — and requires Vitest
@@ -76,6 +77,14 @@ nothing else ran them there. The `release toolchain mechanics` job installs depe
 invokes the same suite through Vitest with `RELEASE_TOOLCHAIN_DIRECTORY`, unchanged in
 substance. Suites need `allowImportingTsExtensions`, because Vitest resolves TypeScript
 itself and the support modules are imported by their real path.
+
+The integration project sets `fileParallelism: false`. `releaseSemverRules` and
+`releaseToolchain` both install into `release-toolchain/`, and the second writes generated
+configuration files inside it while running; Vitest parallelises test files by default, so
+running them as suites introduced a race on shared on-disk state that did not exist while
+they were sequential scripts. Serialising the project is the honest fix — the alternative,
+giving each suite its own copy of the toolchain, would install the same pinned graph twice
+to buy back a few seconds.
 
 Two support artifacts keep extensions the testing standard's suffix table does not list.
 `tests/support/fakes/gh.fake.cjs` is copied to an extensionless `gh` executable on a child

@@ -31,9 +31,10 @@ does. Two things follow:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run check          # formatting, linting, type checks, CI status contract
-pnpm test               # the offline workflow suites in tests/integration
-pnpm run test:fixtures  # the contract fixtures' own suites
+pnpm run check            # formatting, linting, type checks, CI status contract
+pnpm test                 # every offline Vitest project: tests/integration + the fixtures
+pnpm run test:integration # this repository's own workflow suites alone
+pnpm run test:fixtures    # the contract fixtures' own suites alone
 ```
 
 The suites under `tests/integration/` are deliberately real: they install the actual
@@ -63,6 +64,9 @@ cannot invoke a real action.
   Markdown scan and published tarball.
 - A capability must not silently redefine what another one already means. Formatting is
   owned by `@mikode13/code-style`, wherever it runs.
+- The integration project runs with `fileParallelism: false`. Several suites install into
+  and write files inside the same toolchain directory, so parallel test files race on
+  shared on-disk state. Do not re-enable it without giving each suite its own directory.
 
 ## Engineering standards
 
