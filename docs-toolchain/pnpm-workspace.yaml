@@ -1,0 +1,11 @@
+# This directory is installed with `--ignore-workspace`, so it does not inherit the
+# repository root's policy configuration and needs its own copy.
+#
+# A first-party release published from Mikode13/code-style. The age gate exists to slow
+# down unreviewed third-party updates, not our own, and 1.0.0 changes no formatting option
+# relative to 0.1.0 -- it is the same object under a stable major. The check runs when the
+# lockfile is verified, not only when it is resolved, so `--frozen-lockfile` needs this
+# entry too. Remove it once the version is older than the configured window; leaving it
+# behind exempts that version from the gate permanently.
+minimumReleaseAgeExclude:
+  - '@mikode13/code-style@1.0.0'
