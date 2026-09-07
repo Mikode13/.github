@@ -154,8 +154,8 @@ Commits, using npm's OIDC Trusted Publishing (no stored `NPM_TOKEN`).
 
 ### Release workflow revision
 
-| Release                  | `release.yml` SHA                                                                                                             | Validation |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| Release                  | `release.yml` SHA                                                                                                                 | Validation |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | OIDC trusted publication | [`b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff`](https://github.com/Mikode13/.github/commit/b9403230cf37a5ecdfc6a4d7b829f1c815e7e9ff) | —          |
 
 ### Authorization
