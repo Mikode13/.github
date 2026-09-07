@@ -17,8 +17,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0(@types/node@24.13.3)(typescript@6.0.3)
       '@mikode13/tsconfig':
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 0.1.0
+        version: 0.1.0
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -597,13 +597,6 @@ packages:
     resolution:
       {
         integrity: sha512-JJNmjGRjSnrzcWioJ8nYiOtpZBo6UxwSslqiejNLzqRo1bnYcvx96JbMTo9i875iVKiHciT/bBxiffccB4m6Tw==,
-      }
-    engines: { node: ^22.13.0 || ^24.0.0 }
-
-  '@mikode13/tsconfig@1.0.0':
-    resolution:
-      {
-        integrity: sha512-gaDIcrGkbzfQD7Wl8mOqaTBaWRNkt7lVcZ0ljlN5D3QYmoS5yvK4mhr9b6CqinuboukaZEd/lzHueTJc1xDLxA==,
       }
     engines: { node: ^22.13.0 || ^24.0.0 }
 
@@ -4408,8 +4401,6 @@ snapshots:
       - typescript
 
   '@mikode13/tsconfig@0.1.0': {}
-
-  '@mikode13/tsconfig@1.0.0': {}
 
   '@napi-rs/wasm-runtime@1.2.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
     dependencies:
