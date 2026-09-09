@@ -15,7 +15,7 @@
 		"check": "pnpm run format:check"
 	},
 	"devDependencies": {
-		"@mikode13/code-style": "0.1.0",
+		"@mikode13/code-style": "1.0.0",
 		"prettier": "3.9.6"
 	}
 }
