@@ -21,9 +21,9 @@
 		"build": "tsc -p tsconfig.build.json"
 	},
 	"devDependencies": {
-		"@mikode13/code-quality": "0.1.0",
-		"@mikode13/code-style": "0.1.0",
-		"@mikode13/tsconfig": "0.1.0",
+		"@mikode13/code-quality": "1.0.0",
+		"@mikode13/code-style": "1.0.0",
+		"@mikode13/tsconfig": "1.0.0",
 		"@types/node": "24.13.3",
 		"@vitest/coverage-v8": "4.1.10",
 		"eslint": "10.8.0",
