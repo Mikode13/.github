@@ -3,9 +3,5 @@ packages:
   - '!fixtures/e2e'
 
 allowBuilds:
-  '@mikode13/code-quality': false
-  '@mikode13/code-style': false
-  '@mikode13/git-hooks': false
-  '@mikode13/tsconfig': false
   esbuild: true
   unrs-resolver: true
