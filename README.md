@@ -49,6 +49,18 @@ This repository exercises several caller shapes in one validation workflow inste
 a single thin caller. Its own final aggregate is named `CI / required` directly so local
 validation reports the same protected status as consuming repositories.
 
+### Plugin manifest versioning
+
+Content plugins can opt into `documentation_plugin_versions: true` alongside
+`documentation: true`. It validates paired Claude/Codex manifest versions in
+`CI / required`. The separate `plugin-version.yml` workflow updates those versions inside
+the functional PR using an App token; `plugin-release.yml` publishes tags and notes after
+main CI. Consumers need no package manifest or Node.js toolchain.
+
+See the [plugin version contract](plugin-version/README.md) for release types, caller
+events and permissions, setup, concurrent PRs, and recovery. These workflows are separate
+from npm publication and do not change existing CI callers unless explicitly enabled.
+
 ### Documentation toolchain
 
 [`docs-toolchain/`](docs-toolchain) holds a `package.json` and its own `pnpm-lock.yaml`,

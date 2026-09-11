@@ -18,6 +18,14 @@ const { appendFileSync, readFileSync, writeFileSync } = require('node:fs');
 
 const argv = process.argv.slice(2);
 
+// Optional recording for tests of atomic GitHub mutations; real credentials are never used.
+if (process.env.FAKE_GH_INPUT_LOG && argv.includes('--input')) {
+	appendFileSync(
+		process.env.FAKE_GH_INPUT_LOG,
+		`${readFileSync(argv[argv.indexOf('--input') + 1], 'utf8')}\n`,
+	);
+}
+
 if (process.env.FAKE_GH_LOG) {
 	appendFileSync(process.env.FAKE_GH_LOG, `${JSON.stringify(argv)}\n`);
 }
