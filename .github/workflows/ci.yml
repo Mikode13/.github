@@ -23,6 +23,10 @@ on:
         description: Enable the Documentation capability for this workflow revision.
         default: false
         type: boolean
+      documentation_plugin_versions:
+        description: Validate paired Claude/Codex plugin manifests within Documentation.
+        default: false
+        type: boolean
       end_to_end:
         description: Enable the End-to-end capability for this workflow revision.
         default: false
@@ -72,6 +76,7 @@ jobs:
         env:
           BUILD: ${{ inputs.build }}
           DOCUMENTATION: ${{ inputs.documentation }}
+          DOCUMENTATION_PLUGIN_VERSIONS: ${{ inputs.documentation_plugin_versions }}
           END_TO_END: ${{ inputs.end_to_end }}
           LOCKFILE_PATH: ${{ inputs.lockfile_path }}
           PACKAGE: ${{ inputs.package }}
@@ -149,6 +154,11 @@ jobs:
           fi
 
           validate_relative_path working_directory "$WORKING_DIRECTORY"
+
+          if [[ "$DOCUMENTATION_PLUGIN_VERSIONS" == true && ("$DOCUMENTATION" != true || -n "$PROFILE") ]]; then
+            echo '::error::documentation_plugin_versions requires explicit documentation: true'
+            exit 1
+          fi
 
           if [[ "$SOURCE" == true || "$TESTS" == true || "$BUILD" == true || "$PACKAGE" == true || "$END_TO_END" == true ]]; then
             validate_relative_path lockfile_path "$LOCKFILE_PATH"
@@ -384,7 +394,9 @@ jobs:
           # refuses anything outside it. Moved out of the consumer's tree in the next step,
           # exactly as release.yml does with its own toolchain.
           path: .mikode-docs-toolchain
-          sparse-checkout: docs-toolchain
+          sparse-checkout: |
+            docs-toolchain
+            plugin-version
           persist-credentials: false
 
       - name: Move the documentation toolchain out of the consumer's tree
@@ -457,6 +469,14 @@ jobs:
           cd "$TOOLCHAIN_DIRECTORY"
           node node_modules/remark-cli/cli.js \
             --quiet --frail --use remark-validate-links "$GITHUB_WORKSPACE/$WORKING_DIRECTORY"
+
+      - name: Validate plugin manifest versions
+        if: ${{ inputs.documentation_plugin_versions }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_DIRECTORY: ${{ inputs.working_directory }}
+          PLUGIN_VERSION_PLAN: ${{ runner.temp }}/plugin-version-plan.json
+        run: bash "$RUNNER_TEMP/mikode-docs-toolchain/plugin-version/inspect.sh" check
 
   e2e:
     name: end-to-end (Node.js 24)

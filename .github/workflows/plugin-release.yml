@@ -1,0 +1,45 @@
+name: Reusable plugin release
+
+on:
+  workflow_call:
+    inputs:
+      ci_run_id:
+        description: Successful main push run of .github/workflows/ci.yml to publish.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  checks: read
+
+jobs:
+  release:
+    name: release plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve the trusted workflow revision
+        id: revision
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+        run: |
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$WORKFLOW_REPOSITORY" == 'Mikode13/.github' ]]
+          echo "sha=$WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Mikode13/.github
+          ref: ${{ steps.revision.outputs.sha }}
+          sparse-checkout: plugin-version
+          persist-credentials: false
+
+      - name: Verify main CI and publish the immutable plugin release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: bash plugin-version/release.sh

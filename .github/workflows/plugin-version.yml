@@ -1,0 +1,71 @@
+name: Reusable plugin version update
+
+on:
+  workflow_call:
+    inputs:
+      client_id:
+        description: Client ID of the GitHub App installed in the calling repository.
+        required: true
+        type: string
+    secrets:
+      private_key:
+        description: Private key of the version App, with Contents write access only.
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  update:
+    name: update plugin manifests
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.state == 'open' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve the trusted workflow revision
+        id: revision
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+        run: |
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$WORKFLOW_REPOSITORY" == 'Mikode13/.github' ]]
+          echo "sha=$WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted version tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Mikode13/.github
+          ref: ${{ steps.revision.outputs.sha }}
+          sparse-checkout: plugin-version
+          persist-credentials: false
+
+      - name: Prepare the version from immutable GitHub snapshots
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION_PLAN: ${{ runner.temp }}/plugin-version-plan.json
+        run: bash plugin-version/inspect.sh prepare
+
+      - name: Create a token limited to this repository
+        id: app
+        if: ${{ steps.plan.outputs.needs_update == 'true' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ inputs.client_id }}
+          private-key: ${{ secrets.private_key }}
+          permission-contents: write
+
+      - name: Commit both manifest versions atomically
+        if: ${{ steps.plan.outputs.needs_update == 'true' }}
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION_PLAN: ${{ runner.temp }}/plugin-version-plan.json
+        run: bash plugin-version/update.sh

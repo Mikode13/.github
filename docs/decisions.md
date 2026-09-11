@@ -5,6 +5,32 @@ live in [`Mikode13/engineering`](https://github.com/Mikode13/engineering), and t
 mechanics of each workflow are documented in [`README.md`](../README.md); this file records
 the reasoning a future maintainer could not recover from either.
 
+## Plugin versions are committed in the functional PR
+
+**Decision.** Content plugins use an opt-in Documentation version check and separate
+central workflows to update paired host manifests in the functional PR and publish GitHub
+release history after main CI. PR titles choose patch (`fix`), minor (`feat`), or major
+(breaking) increments; the distributed diff determines whether a release is needed.
+
+**Context.** Plugin clients read committed manifest versions, whereas npm package versions
+are assigned at publication. ADR 0011's registry workflow does not cover this distribution
+model. A separate release PR would postpone delivery and add another review cycle.
+
+**Consequences.** The consumer owns only declarative callers and an App installation with
+Contents write access. Bash and `jq` process GitHub data without running consumer code in
+the privileged job. CI repeats the same calculation without write credentials. Concurrent PRs
+that release or repair a plugin must incorporate current main; unrelated changes are
+compared with their merge-base. Host-cache updates remain a rollout check. The
+central repository owns executable code and integration tests; no Node.js project is
+introduced into the content repository.
+
+**Review refinements.** The live main ref and merge-base replace potentially stale event
+base metadata. Main CI checks a coherent single version increment against the actual
+parent instead of inferring a second release type from the squash message. Existing
+discrepant or single-host manifests can be repaired from their highest numeric version.
+These changes remove avoidable adoption and recovery failures without relaxing the
+atomic App commit or immutable tag checks.
+
 ## The Documentation capability formats with the shared export, from a pinned toolchain
 
 **Decision.** The Documentation capability resolves `@mikode13/code-style/prettier` from a
