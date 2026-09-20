@@ -392,6 +392,9 @@ that defines the running workflow, so a caller pinned to a SHA runs exactly the 
 that SHA. The reviewer, its skill and policy revisions, its model, and its harness version are frozen in
 that commit and change only through a reviewed pull request here.
 
+The [AI review behaviour](docs/ai-review.md) document describes what a reviewed pull request
+sees: outcomes, findings, rechecks, and the evidence the reviewer receives.
+
 ### Caller setup
 
 A caller runs on `pull_request_target`, so GitHub takes the caller and this workflow from the
