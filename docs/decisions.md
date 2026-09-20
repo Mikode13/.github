@@ -128,8 +128,8 @@ quietly repeating.
 `ai-review.yml` and the scripts in `ai-review/`. Each repository adds a caller on
 `pull_request_target` that pins a full SHA. The reviewer's scripts are checked out at
 `job.workflow_sha`, the commit that defines the running workflow, instead of being read from
-the reviewed repository. The result is the commit status `AI Review / required`, which a
-ruleset can require by name.
+the reviewed repository. The result is the commit status `AI Review / required`, which stays
+unrequired: the standard forbids requiring a status a branch can report itself.
 
 **Context.** The reviewer ran as a pilot inside `Mikode13/slop-lab`, where every fix was a
 pull request reviewed by the pilot itself. It was promoted once live runs stopped exposing
@@ -143,7 +143,8 @@ mechanism the CI workflow already has.
 the rollback. The reviewer, its skill and policy revisions, its model, and its harness version change only through
 a pull request here, and a repository under review can no longer alter or remove them. The
 status is still matched by name, so a workflow a branch adds could report a passing
-`AI Review / required`; closing that needs the required-workflow rule and remains open. The
+`AI Review / required`; closing that needs a ruleset that requires the pinned workflow or a dedicated GitHub App,
+and until then the check cannot be required. The
 token stays in each caller's `ai-review` environment, so adopting the reviewer means creating
 that environment there. The 47 tests that covered the pilot's scripts moved with them and run
 in `pnpm test`.

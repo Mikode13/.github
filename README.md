@@ -462,15 +462,19 @@ commands again.
   review.
 - `blocked` and `incomplete` both fail the status. The workflow never skips its way past the
   gate, because GitHub treats a skipped required check as passing.
-- The status is matched by name. Any workflow a branch adds under `pull_request` could report
-  a passing `AI Review / required`, so requiring it in a ruleset makes it a review gate, not a
-  tamper-proof one. The required-workflow rule that closes this is a separate decision.
+- The status is matched by name, so any workflow a branch adds under `pull_request` could
+  report a passing `AI Review / required`. The
+  [standard](https://github.com/Mikode13/engineering/blob/main/standards/automated-pull-request-review.md)
+  therefore forbids requiring it until it comes from a source a branch cannot act as: a ruleset
+  rule that requires the pinned workflow, or a dedicated GitHub App. Until then the review
+  advises and holds the merge only through its conversations. Do not add the check to the shared
+  `required-ci` ruleset, which covers repositories that do not run the reviewer.
 
 ### Rollback
 
 Move the caller's pin to the previous SHA. Nothing else changes, because the reviewer travels
 with the workflow revision. To stop reviewing a repository, remove its caller; no check waits
-for the workflow once the ruleset stops requiring the status.
+for the workflow, because nothing requires the status yet.
 
 ## Developing the workflows
 
