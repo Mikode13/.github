@@ -121,3 +121,32 @@ that must be JavaScript on disk. The mandated roots and categories are honoured;
 extensions differ, because the standard's table describes test _modules_ and has no category
 for an on-disk asset that must be executable. Worth raising against the standard rather than
 quietly repeating.
+
+## The AI reviewer is a reusable workflow called by a thin caller
+
+**Decision.** The automated pull request reviewer lives here as the reusable workflow
+`ai-review.yml` and the scripts in `ai-review/`. Each repository adds a caller on
+`pull_request_target` that pins a full SHA. The reviewer's scripts are checked out at
+`job.workflow_sha`, the commit that defines the running workflow, instead of being read from
+the reviewed repository. The result is the commit status `AI Review / required`, which a
+ruleset can require by name.
+
+**Context.** The reviewer ran as a pilot inside `Mikode13/slop-lab`, where every fix was a
+pull request reviewed by the pilot itself. It was promoted once live runs stopped exposing
+pipeline defects, after the layered-architecture migration converged across its pushes.
+The pilot design assumed a ruleset that requires the workflow at a fixed SHA. That rule runs
+the workflow only for the default activity types, so a draft marked ready would wait for the
+next push, and it is a separate change to the organization ruleset. A caller reuses the
+mechanism the CI workflow already has.
+
+**Consequences.** A caller adopts a reviewer update by moving one SHA, and the previous SHA is
+the rollback. The reviewer, its skill and policy revisions, its model, and its harness version change only through
+a pull request here, and a repository under review can no longer alter or remove them. The
+status is still matched by name, so a workflow a branch adds could report a passing
+`AI Review / required`; closing that needs the required-workflow rule and remains open. The
+token stays in each caller's `ai-review` environment, so adopting the reviewer means creating
+that environment there. The 47 tests that covered the pilot's scripts moved with them and run
+in `pnpm test`.
+
+**Lesson.** Promote only what live runs have stopped breaking. In a shared repository each
+defect the pilot found would have been noise in every adopter.

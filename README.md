@@ -376,6 +376,99 @@ real `actions/checkout` + move dance described above (via the
 checkout action at all, so no purely offline test could have caught a bug that only
 exists in that action's own runtime behavior.
 
+## Reusable AI review
+
+The reusable workflow at [`.github/workflows/ai-review.yml`](.github/workflows/ai-review.yml)
+implements the
+[automated pull request review standard](https://github.com/Mikode13/engineering/blob/main/standards/automated-pull-request-review.md).
+It reviews one exact pull request commit and reports the outcome as the commit status
+`AI Review / required`. Only a `BLOCKER` finding fails that status. `SHOULD FIX` and
+`SUGGESTION` findings open conversations on their lines, which conversation resolution
+already makes someone close before the merge, and one summary comment is updated in place on
+every review. The reviewer never approves, commits, resolves a conversation, or merges.
+
+The reviewer's code lives in [`ai-review/`](ai-review). The workflow checks out the commit
+that defines the running workflow, so a caller pinned to a SHA runs exactly the reviewer at
+that SHA. The reviewer, its skill and policy revisions, its model, and its harness version are frozen in
+that commit and change only through a reviewed pull request here.
+
+### Caller setup
+
+A caller runs on `pull_request_target`, so GitHub takes the caller and this workflow from the
+default branch and never from the pull request. It grants the permissions the two jobs use
+and cancels a review that a new commit supersedes:
+
+```yaml
+name: AI Review
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+
+permissions: {}
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ai-review:
+    name: AI Review
+    permissions:
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: write
+      statuses: write
+    uses: Mikode13/.github/.github/workflows/ai-review.yml@<full commit SHA>
+```
+
+Pin a full commit SHA, never a branch. The workflow has no inputs; its behaviour belongs to
+the pinned revision.
+
+### Credential
+
+The provider token, `CLAUDE_CODE_OAUTH_TOKEN`, belongs in an `ai-review` environment of the
+caller repository, with deployment branches limited to the default branch, and nowhere else.
+Any workflow a branch runs can read a repository or organization secret, but only a run from
+the default branch can declare that environment. Only the analysis job declares it; the
+publication job holds the write permissions and no provider credential.
+
+```sh
+claude setup-token
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --env ai-review --repo <owner>/<repository>
+```
+
+Both commands prompt locally. Never paste the token into an issue, a pull request, a
+committed file, a command argument, or chat, and never transform it in a workflow, because
+that breaks log masking. Rotate it immediately if it is exposed, by running the same two
+commands again.
+
+### What the review does and does not do
+
+- It waits for `CI / required` on the reviewed commit, and reports `incomplete`, a failing
+  status, when CI fails, does not finish, or cannot run because the branch conflicts.
+- It reviews a pull request from the same repository only. A fork receives no credential, so
+  its status fails instead of skipping. A draft receives no status; marking it ready starts a
+  review.
+- `blocked` and `incomplete` both fail the status. The workflow never skips its way past the
+  gate, because GitHub treats a skipped required check as passing.
+- The status is matched by name. Any workflow a branch adds under `pull_request` could report
+  a passing `AI Review / required`, so requiring it in a ruleset makes it a review gate, not a
+  tamper-proof one. The required-workflow rule that closes this is a separate decision.
+
+### Rollback
+
+Move the caller's pin to the previous SHA. Nothing else changes, because the reviewer travels
+with the workflow revision. To stop reviewing a repository, remove its caller; no check waits
+for the workflow once the ruleset stops requiring the status.
+
 ## Developing the workflows
 
 The repository validates workflow syntax and exercises retained profiles and explicit
@@ -384,7 +477,8 @@ capability composition with contract fixtures:
 ```sh
 pnpm install --frozen-lockfile
 pnpm run check            # formatting, linting, type checks, CI status contract
-pnpm test                 # every offline Vitest project: tests/integration + the fixtures
+pnpm test                 # the AI review tests, every offline Vitest project, and the fixtures
+pnpm run test:ai-review   # the AI review scripts alone
 pnpm run test:integration # this repository's own workflow suites alone
 pnpm run test:fixtures    # the contract fixtures' own suites alone
 ```
