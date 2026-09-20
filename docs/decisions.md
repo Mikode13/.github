@@ -133,7 +133,8 @@ ruleset can require by name.
 
 **Context.** The reviewer ran as a pilot inside `Mikode13/slop-lab`, where every fix was a
 pull request reviewed by the pilot itself. It was promoted once live runs stopped exposing
-pipeline defects, after the layered-architecture migration converged across its pushes. The pilot design assumed a ruleset that requires the workflow at a fixed SHA. That rule runs
+pipeline defects, after the layered-architecture migration converged across its pushes.
+The pilot design assumed a ruleset that requires the workflow at a fixed SHA. That rule runs
 the workflow only for the default activity types, so a draft marked ready would wait for the
 next push, and it is a separate change to the organization ruleset. A caller reuses the
 mechanism the CI workflow already has.
