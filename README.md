@@ -403,6 +403,8 @@ name: AI Review
 
 on:
   pull_request_target:
+    branches:
+      - main
     types:
       - opened
       - reopened
