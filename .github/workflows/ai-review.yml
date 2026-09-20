@@ -24,6 +24,7 @@ env:
   # this file, which callers adopt by moving their pin.
   HARNESS_PACKAGE: '@mikode13/harness-cli@1.1.0'
   SKILL_REVISION: e62054e152ddab286f7325e8830170a22ee722d7
+  POLICY_REVISION: 8f4d69b04905295c37d616be7b9300acc2dc781e
   REVIEW_MODEL: opus
   REVIEW_EFFORT: high
   REVIEW_TIMEOUT_SECONDS: '900'
@@ -198,7 +199,7 @@ jobs:
             echo "This pull request closes no issue; the reviewer must resolve intent from its description."
           fi
 
-      - name: Install the pinned review skill and current policy
+      - name: Install the pinned review skill and policy
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -206,11 +207,8 @@ jobs:
             "https://codeload.github.com/Mikode13/skills/tar.gz/${SKILL_REVISION}" \
             | tar -xz --strip-components=1 -C "$SKILL_DIR"
 
-          policy_revision="$(gh api repos/Mikode13/engineering/commits/main --jq .sha)"
-          echo "POLICY_REVISION=${policy_revision}" >> "$GITHUB_ENV"
-
           for standard in automated-pull-request-review documentation git-workflow; do
-            gh api "repos/Mikode13/engineering/contents/standards/${standard}.md?ref=${policy_revision}" \
+            gh api "repos/Mikode13/engineering/contents/standards/${standard}.md?ref=${POLICY_REVISION}" \
               --header 'Accept: application/vnd.github.raw+json' > "${POLICY_DIR}/${standard}.md"
           done
 
