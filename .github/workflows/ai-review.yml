@@ -1,0 +1,343 @@
+name: AI Review
+
+# A reusable workflow. The caller runs on `pull_request_target`, so this file and the reviewer it
+# checks out are taken from the caller's default branch and the pinned commit of this repository,
+# never from the pull request. Nothing here executes code or configuration from the pull
+# request: its head is read as data.
+#
+# The caller grants the permissions the two jobs use, sets the concurrency group, and keeps the
+# provider token in its `ai-review` environment. See the README, "Reusable AI review".
+on:
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: >-
+          The provider credential. It is normally stored as a secret of the caller's `ai-review`
+          environment, which the analysis job uses, so a caller that does that passes nothing.
+        required: false
+
+permissions: {}
+
+env:
+  # The reviewer is frozen on these revisions so that a result can be attributed to a reviewer,
+  # not to whatever the ecosystem published that morning. Changing one is a reviewed change to
+  # this file, which callers adopt by moving their pin.
+  HARNESS_PACKAGE: '@mikode13/harness-cli@1.1.0'
+  SKILL_REVISION: e62054e152ddab286f7325e8830170a22ee722d7
+  REVIEW_MODEL: opus
+  REVIEW_EFFORT: high
+  REVIEW_TIMEOUT_SECONDS: '900'
+
+jobs:
+  # Reads the change and spends the provider credential. It has no write access anywhere, and
+  # it never executes the pull request: the reviewer receives evidence, not a workspace.
+  analyze:
+    name: Analyze
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    # Up to eleven minutes of waiting for CI, two reviewer turns of fifteen minutes, and setup.
+    timeout-minutes: 50
+    environment: ai-review
+    permissions:
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      report: ${{ steps.review.outputs.report || steps.ci.outputs.report }}
+    env:
+      # The trusted base is the commit of the caller's default branch this run started from. The
+      # base commit in the event can be older, and a pull request opened before a change to that
+      # branch would then be reviewed against, and take its guidance from, a stale base.
+      BASE_SHA: ${{ github.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Wait for deterministic CI
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Each way this step stops is reported as the reason the review is incomplete, so the
+          # summary says what to do instead of only that the analysis failed.
+          stop() {
+            echo "$1"
+            delimiter="report-${RANDOM}${RANDOM}"
+            {
+              printf 'report<<%s\n' "$delimiter"
+              jq --compact-output --null-input --arg reason "$1" \
+                '{valid: false, outcome: "incomplete", errors: [$reason]}'
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          }
+
+          for attempt in $(seq 1 60); do
+            conclusion="$(gh api "repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "CI / required")] | sort_by(.started_at) | last | .conclusion // ""')"
+
+            if [ "$conclusion" = "success" ]; then
+              exit 0
+            fi
+
+            case "$conclusion" in
+              action_required | cancelled | failure | neutral | skipped | stale | timed_out)
+                stop "\`CI / required\` finished as ${conclusion}, so there is nothing worth reviewing yet. A commit that fixes it starts a new review."
+                ;;
+            esac
+
+            # GitHub does not run pull request workflows while the branch conflicts with its base,
+            # so no CI result will come until someone resolves the conflict.
+            state="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.mergeable_state')"
+            if [ "$state" = "dirty" ]; then
+              stop "The pull request conflicts with \`main\`, and GitHub runs no CI on it until the conflict is resolved. Resolving it starts a new review."
+            fi
+
+            echo "Waiting for CI / required (attempt ${attempt} of 60)."
+            sleep 10
+          done
+
+          stop "\`CI / required\` did not finish within ten minutes. Re-run this review once it has."
+
+      # The reviewer is code of this repository, not of the repository under review. The commit that
+      # defines this running workflow is where it lives, so a caller that pins this workflow by
+      # SHA runs exactly the reviewer at that SHA. Same mechanism as the CI workflow's toolchain.
+      - name: Resolve the reviewer revision
+        id: reviewer
+        env:
+          JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ ! "$JOB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::job.workflow_sha did not resolve to a 40-character commit SHA: $JOB_WORKFLOW_SHA"
+            exit 1
+          fi
+
+          if [[ -z "$JOB_WORKFLOW_REPOSITORY" ]]; then
+            echo "::error::job.workflow_repository did not resolve to a repository"
+            exit 1
+          fi
+
+          echo "sha=$JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository=$JOB_WORKFLOW_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the reviewer
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.0
+        with:
+          path: reviewer
+          persist-credentials: false
+          ref: ${{ steps.reviewer.outputs.sha }}
+          repository: ${{ steps.reviewer.outputs.repository }}
+          sparse-checkout: ai-review
+
+      # The runner context is not available to a job-level `env`, so the directories the later
+      # steps and the Node scripts share are exported here instead.
+      - name: Prepare the review workspace
+        run: |
+          {
+            echo "BASE_DIR=${RUNNER_TEMP}/base"
+            echo "EVIDENCE_DIR=${RUNNER_TEMP}/evidence"
+            echo "HEAD_DIR=${GITHUB_WORKSPACE}/head"
+            echo "OUTPUT_DIR=${RUNNER_TEMP}/work"
+            echo "POLICY_DIR=${RUNNER_TEMP}/policy"
+            echo "REVIEWER_DIR=${GITHUB_WORKSPACE}/reviewer/ai-review"
+            echo "SKILL_DIR=${RUNNER_TEMP}/skill"
+          } >> "$GITHUB_ENV"
+
+          mkdir -p "${RUNNER_TEMP}/base" "${RUNNER_TEMP}/evidence" "${RUNNER_TEMP}/work" \
+            "${RUNNER_TEMP}/policy" "${RUNNER_TEMP}/skill"
+
+      - name: Check out the reviewed commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.0
+        with:
+          fetch-depth: 0
+          path: head
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Extract the trusted base revision
+        working-directory: head
+        run: git archive "$BASE_SHA" | tar -x -C "$BASE_DIR"
+
+      - name: Collect the reviewed change
+        working-directory: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git diff --no-ext-diff --unified=3 "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/change.diff"
+          git diff --name-only "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/changed-files.txt"
+
+          gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" > "${EVIDENCE_DIR}/pull-request.json"
+
+          # The change contract comes from the issue the pull request closes. An issue merely
+          # mentioned in the description is not that contract, so only a closing reference counts.
+          gh api graphql \
+            -f owner="${GITHUB_REPOSITORY_OWNER}" \
+            -f name="${REPOSITORY#*/}" \
+            -F number="${PR_NUMBER}" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    closingIssuesReferences(first: 1) {
+                      nodes { url body }
+                    }
+                  }
+                }
+              }' \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[0] | select(. != null) | {html_url: .url, body: .body}' \
+            > "${EVIDENCE_DIR}/issue.json"
+
+          if [ ! -s "${EVIDENCE_DIR}/issue.json" ]; then
+            rm -f "${EVIDENCE_DIR}/issue.json"
+            echo "This pull request closes no issue; the reviewer must resolve intent from its description."
+          fi
+
+      - name: Install the pinned review skill and current policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --silent --show-error --location \
+            "https://codeload.github.com/Mikode13/skills/tar.gz/${SKILL_REVISION}" \
+            | tar -xz --strip-components=1 -C "$SKILL_DIR"
+
+          policy_revision="$(gh api repos/Mikode13/engineering/commits/main --jq .sha)"
+          echo "POLICY_REVISION=${policy_revision}" >> "$GITHUB_ENV"
+
+          for standard in automated-pull-request-review documentation git-workflow; do
+            gh api "repos/Mikode13/engineering/contents/standards/${standard}.md?ref=${policy_revision}" \
+              --header 'Accept: application/vnd.github.raw+json' > "${POLICY_DIR}/${standard}.md"
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version: 24
+
+      # Earlier findings are rechecked rather than rediscovered, so a finding the reviewer happens
+      # not to find again is not taken as fixed.
+      - name: Collect the findings earlier reviews published
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "${REVIEWER_DIR}/collect-earlier-findings.mjs"
+
+      - name: Build the review prompt
+        run: node "${REVIEWER_DIR}/build-prompt.mjs"
+
+      - name: Review the pull request
+        id: review
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node "${REVIEWER_DIR}/run-reviewer.mjs"
+
+  # Holds the write access and no provider credential. It re-validates the analysis before it
+  # acts on it and reports the outcome as the AI Review / required status of the reviewed commit.
+  publish:
+    name: Publish
+    needs:
+      - analyze
+    # A draft gets no status and cannot merge; marking it ready starts a new review. Anything else
+    # that cannot be reviewed reports a failing status instead of none.
+    if: always() && github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: Refuse a pull request from a fork
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "A pull request from a fork receives no provider credential, so it cannot be reviewed."
+          exit 1
+
+      # The reviewer is code of this repository, not of the repository under review. The commit that
+      # defines this running workflow is where it lives, so a caller that pins this workflow by
+      # SHA runs exactly the reviewer at that SHA. Same mechanism as the CI workflow's toolchain.
+      - name: Resolve the reviewer revision
+        id: reviewer
+        env:
+          JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ ! "$JOB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::job.workflow_sha did not resolve to a 40-character commit SHA: $JOB_WORKFLOW_SHA"
+            exit 1
+          fi
+
+          if [[ -z "$JOB_WORKFLOW_REPOSITORY" ]]; then
+            echo "::error::job.workflow_repository did not resolve to a repository"
+            exit 1
+          fi
+
+          echo "sha=$JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository=$JOB_WORKFLOW_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the publisher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.0
+        with:
+          path: reviewer
+          persist-credentials: false
+          ref: ${{ steps.reviewer.outputs.sha }}
+          repository: ${{ steps.reviewer.outputs.repository }}
+          sparse-checkout: ai-review
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version: 24
+
+      - name: Publish the review
+        id: publish
+        env:
+          ANALYZE_RESULT: ${{ needs.analyze.result }}
+          BASE_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPORT: ${{ needs.analyze.outputs.report }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node "${GITHUB_WORKSPACE}/reviewer/ai-review/publish-result.mjs"
+
+      # Under pull_request_target, GITHUB_SHA is the latest commit of main rather than the reviewed
+      # commit, so the outcome is reported on the reviewed commit explicitly.
+      - name: Report the review status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OUTCOME: ${{ steps.publish.outputs.outcome }}
+          PUBLISHED: ${{ steps.publish.outputs.published }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Only a BLOCKER holds the merge back. SHOULD FIX and SUGGESTION findings open
+          # conversations, which the ruleset already requires someone to resolve.
+          state=failure
+          if [ "$PUBLISHED" != true ]; then
+            description="No completed review for this commit${OUTCOME:+ (${OUTCOME})}."
+          else
+            case "$OUTCOME" in
+              clean | suggestions | concerns)
+                state=success
+                description="Review completed: ${OUTCOME}."
+                ;;
+              blocked)
+                description="Review completed: blocked by a BLOCKER finding."
+                ;;
+              *)
+                description="Review incomplete: not evidence that the change is safe."
+                ;;
+            esac
+          fi
+
+          gh api "repos/${REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state="$state" \
+            -f context='AI Review / required' \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            > /dev/null
