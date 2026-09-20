@@ -389,7 +389,7 @@ every review. The reviewer never approves, commits, resolves a conversation, or 
 
 The reviewer's code lives in [`ai-review/`](ai-review). The workflow checks out the commit
 that defines the running workflow, so a caller pinned to a SHA runs exactly the reviewer at
-that SHA. The reviewer, its skill revision, its model, and its harness version are frozen in
+that SHA. The reviewer, its skill and policy revisions, its model, and its harness version are frozen in
 that commit and change only through a reviewed pull request here.
 
 ### Caller setup

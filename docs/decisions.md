@@ -140,7 +140,7 @@ next push, and it is a separate change to the organization ruleset. A caller reu
 mechanism the CI workflow already has.
 
 **Consequences.** A caller adopts a reviewer update by moving one SHA, and the previous SHA is
-the rollback. The reviewer, its skill, its model, and its harness version change only through
+the rollback. The reviewer, its skill and policy revisions, its model, and its harness version change only through
 a pull request here, and a repository under review can no longer alter or remove them. The
 status is still matched by name, so a workflow a branch adds could report a passing
 `AI Review / required`; closing that needs the required-workflow rule and remains open. The
