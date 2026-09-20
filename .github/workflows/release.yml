@@ -311,7 +311,9 @@ jobs:
           const packOutput = execFileSync('npm', ['pack', '--dry-run', '--json'], {
             encoding: 'utf8',
           });
-          const [report] = JSON.parse(packOutput);
+          // npm 11 prints an array with one report; npm 12 prints an object keyed by package name.
+          const parsed = JSON.parse(packOutput);
+          const report = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
           const packedFiles = new Set(report.files.map(file => file.path));
 
           const missing = declaredEntries.filter(entry => !packedFiles.has(entry));
