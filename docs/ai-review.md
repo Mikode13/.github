@@ -1,15 +1,15 @@
 # AI review behaviour
 
-How the reusable [AI review workflow](../.github/workflows/ai-review.yml) behaves, as
-observed in the pilot in `Mikode13/slop-lab` before it moved here. The README's
-[Reusable AI review](../README.md#reusable-ai-review) section covers adopting it; this document
-covers what a reviewed pull request sees. The reviewer's code is in [`ai-review/`](../ai-review),
-and the workflow file is the authority when this text and it disagree.
+How the [AI review actions](../ai-review) behave, as observed in the pilot in
+`Mikode13/slop-lab` before they moved here. The README's
+[AI review](../README.md#ai-review) section covers adopting them; this document covers what a
+reviewed pull request sees. The caller pins both actions to the same commit; their source is
+the authority when this text and the implementation disagree.
 
 ## Frozen configuration
 
 A reviewer that changes while it is measured proves nothing, so these are fixed in each
-revision of [the reusable workflow](https://github.com/Mikode13/.github/blob/main/.github/workflows/ai-review.yml). A change is a reviewed pull request there:
+revision of [the actions](../ai-review). A change is a reviewed pull request here:
 
 | Choice           | Value                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------- |
@@ -49,8 +49,8 @@ The work is split across jobs that do not share credentials:
 `Analyze` checks out the pull request head without persisted Git credentials and reads it as
 data: nothing from it runs, and the reviewer starts in a separate work directory. The
 reviewer's progress output, which the pull request can influence, is printed with workflow
-commands switched off. The reviewer's own scripts come from the commit of `Mikode13/.github` that defines the
-running workflow, and the repository instructions, the architecture document, and the decision
+commands switched off. The reviewer's own scripts come from the pinned commit of `Mikode13/.github`,
+and the repository instructions, the architecture document, and the decision
 log are read from the base revision, so a pull request cannot rewrite the reviewer that is
 about to judge it. The base revision is the commit of `main` the caller was read from, not the
 base commit recorded in the pull request, which can be older. The reviewed diff starts where the pull request diverges
@@ -62,6 +62,23 @@ and neutralizes mentions, HTML, and comment markers in every string it renders. 
 `pull_request_target`, `GITHUB_SHA` is the latest commit of `main` rather than the reviewed
 commit, so the job reports the outcome explicitly, as the commit status
 `AI Review / required` of the reviewed commit.
+
+### Reviewing this repository
+
+This repository uses [its own caller](../.github/workflows/ai-review-self.yml) to review
+non-draft internal pull requests to `main`. The caller runs from `main` under
+`pull_request_target` and pins both actions to the same immutable commit. Its analysis job
+uses the protected `ai-review` environment, whose deployment branches are restricted to
+`main`; its publication job has no provider token. Store `CLAUDE_CODE_OAUTH_TOKEN` as an
+environment secret in this repository before activating the caller. A repository or
+organization secret can be read by untrusted branch workflows and must not be used here.
+
+The caller can run only after this workflow is merged to `main`. Before merging, replace the
+two action pins with the actual commit of `main` containing the actions; a squash merge of the
+actions pull request changes its SHA. Then create or update a separate, non-draft test pull
+request to trigger a real review. The `AI Review / required` commit status is advisory until
+GitHub can require it from a source a branch cannot impersonate. Keep it out of the shared
+`required-ci` ruleset; the review conversations still require resolution.
 
 ## Evidence, not a workspace
 

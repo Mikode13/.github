@@ -1,0 +1,59 @@
+name: AI Review
+
+# pull_request_target loads this caller from main. The reviewed branch is only read as data.
+# Keep both actions pinned to the same reviewed revision of this repository.
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+
+permissions: {}
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: ai-review
+    permissions:
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      report: ${{ steps.review.outputs.report }}
+    steps:
+      - name: Analyze the pull request
+        id: review
+        uses: Mikode13/.github/ai-review/analyze@c219185072a013388ecd854c2564a572d08ce945
+        with:
+          provider_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  publish:
+    name: Publish
+    needs: analyze
+    if: always() && github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: Publish the result
+        uses: Mikode13/.github/ai-review/publish@c219185072a013388ecd854c2564a572d08ce945
+        with:
+          analyze_result: ${{ needs.analyze.result }}
+          report: ${{ needs.analyze.outputs.report }}
