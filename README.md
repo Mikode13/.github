@@ -466,8 +466,8 @@ jobs:
 ```
 
 Use the actual same full commit SHA in both `uses` lines, never a branch. The reviewer's
-behaviour belongs to the pinned revision. Allow other repositories in the organization to
-access this private repository's actions under its Actions access settings.
+behaviour belongs to the pinned revision. This repository is public; the caller can refer to
+the pinned actions directly without configuring access to private actions.
 
 ### Credential
 
