@@ -1,0 +1,73 @@
+# The caller uses this action at an immutable reviewed SHA on pull_request_target.
+name: Publish a pull request review
+description: Revalidates and publishes the review from a separate job with write access and no provider token.
+inputs:
+  analyze_result:
+    description: Result of the protected analysis job.
+    required: true
+  report:
+    description: Report returned by the analysis action.
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Refuse a pull request from a fork
+      if: github.event.pull_request.head.repo.full_name != github.repository
+      run: |
+        echo "A pull request from a fork receives no provider credential, so it cannot be reviewed."
+        exit 1
+      shell: bash
+    - name: Set up Node.js
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+      with:
+        node-version: 24
+    - name: Publish the review
+      id: publish
+      env:
+        ANALYZE_RESULT: ${{ inputs.analyze_result }}
+        BASE_SHA: ${{ github.sha }}
+        GITHUB_TOKEN: ${{ github.token }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPORT: ${{ inputs.report }}
+        REPOSITORY: ${{ github.repository }}
+        PUBLISHER_PATH: ${{ github.action_path }}/../publish-result.mjs
+      run: |
+        node "${PUBLISHER_PATH}"
+      shell: bash
+    - name: Report the review status
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        OUTCOME: ${{ steps.publish.outputs.outcome }}
+        PUBLISHED: ${{ steps.publish.outputs.published }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        # Only a BLOCKER holds the merge back. SHOULD FIX and SUGGESTION findings open
+        # conversations, which the ruleset already requires someone to resolve.
+        state=failure
+        if [ "$PUBLISHED" != true ]; then
+          description="No completed review for this commit${OUTCOME:+ (${OUTCOME})}."
+        else
+          case "$OUTCOME" in
+            clean | suggestions | concerns)
+              state=success
+              description="Review completed: ${OUTCOME}."
+              ;;
+            blocked)
+              description="Review completed: blocked by a BLOCKER finding."
+              ;;
+            *)
+              description="Review incomplete: not evidence that the change is safe."
+              ;;
+          esac
+        fi
+
+        gh api "repos/${REPOSITORY}/statuses/${HEAD_SHA}" \
+          -f state="$state" \
+          -f context='AI Review / required' \
+          -f description="$description" \
+          -f target_url="${GITHUB_SERVER_URL}/${REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          > /dev/null
+      shell: bash

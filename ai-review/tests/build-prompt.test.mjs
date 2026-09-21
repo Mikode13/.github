@@ -56,6 +56,7 @@ function environment(directories, overrides = {}) {
 		POLICY_REVISION: 'policy-revision',
 		REPOSITORY: 'Mikode13/slop-lab',
 		SKILL_DIR: directories.skill,
+		CLAUDE_CODE_OAUTH_TOKEN: 'test-credential',
 		...overrides,
 	};
 }
@@ -161,6 +162,24 @@ test('the runner never calls the provider for a build that does not fit', () => 
 	assert.equal(report.outcome, 'incomplete');
 	assert.equal(report.attempts, 0);
 	assert.match(report.errors[0], /src\/large\.js/u);
+});
+
+test('a missing environment credential yields an incomplete review before the provider starts', () => {
+	const directories = workspace({ 'src/small.js': 'export const small = 1;\n' });
+	build(directories);
+	const run = spawnSync(process.execPath, [runner], {
+		encoding: 'utf8',
+		env: environment(directories, {
+			CLAUDE_CODE_OAUTH_TOKEN: '',
+			GITHUB_OUTPUT: join(directories.work, 'github-output'),
+			REVIEWER_COMMAND: join(directories.work, 'must-not-run'),
+		}),
+	});
+	assert.equal(run.status, 0, run.stderr);
+	const report = JSON.parse(readFileSync(join(directories.work, 'review-report.json'), 'utf8'));
+	assert.equal(report.outcome, 'incomplete');
+	assert.equal(report.attempts, 0);
+	assert.match(report.errors[0], /CLAUDE_CODE_OAUTH_TOKEN.*ai-review/u);
 });
 
 function cleanResult() {
