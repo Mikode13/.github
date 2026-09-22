@@ -31,11 +31,17 @@ that proves they work:
 | `profile/`, `workflow-templates/`                    | Organization-level GitHub content                                                     |
 | `fixtures/`, `tests/`, `scripts/`, `ai-review/tests` | This repository's own validation                                                      |
 
-Logic lives in a workflow step only while it stays trivial. Everything the reviewer does
-beyond wiring is a sibling ES module — `build-prompt.mjs`, `collect-earlier-findings.mjs`,
-`contract.mjs`, `publish-result.mjs`, `review-state.mjs`, `run-reviewer.mjs` — because a
-script inside a YAML string cannot be linted, type-checked or unit-tested, and this is the
-one place with enough behaviour to need all three.
+Where logic can live is decided by the artifact, not by how much of it there is. A composite
+action runs from a checkout of this repository, so `ai-review/` keeps its behaviour in sibling
+ES modules — `build-prompt.mjs`, `collect-earlier-findings.mjs`, `contract.mjs`,
+`publish-result.mjs`, `review-state.mjs`, `run-reviewer.mjs` — which lint, type-check and
+unit-test like any other source. A reusable workflow cannot read a file from its own defining
+repository at run time, so `ci.yml` and `release.yml` embed their scripts deliberately;
+embedding is also what makes a caller's pinned SHA guarantee which script ran.
+
+Embedded does not mean untested. `tests/support/fixtures/workflowStep.fixture.ts` extracts a
+step's literal `run:` body from the workflow file, so a suite executes the exact text that
+ships instead of a hand-copied duplicate that can drift.
 
 ## Responsibilities and boundaries
 
@@ -118,19 +124,23 @@ real action.
   capability never quietly redefined. The executable contract and its documentation ship in
   the same commit, because a capability the README describes and the pinned revision does not
   implement is worse than an undocumented one.
-- **A required workflow cannot use `cancel-in-progress`.** GitHub advises against it, so a
-  superseded review run has to stop itself instead.
-- **Toolchains take a detour through the consumer's tree.** `actions/checkout` refuses a
-  `path` outside `GITHUB_WORKSPACE`, so each toolchain is checked out there and immediately
-  moved to `runner.temp`. The move is also what keeps its files out of the consumer's Markdown
-  scan and published tarball.
 - **The integration suite is slow on purpose.** It installs the real pinned toolchains and
-  executes the real scripts extracted from the workflow files, because the defects worth
-  catching here live in how real tools compose. It runs with `fileParallelism: false`, since
-  several suites write inside the same toolchain directory.
+  executes the real scripts taken from the workflow files, because the defects worth catching
+  here live in how real tools compose rather than in logic a unit test could isolate. Cheaper
+  suites would not prove a workflow change works.
+- **Adopting the reviewer through a caller leaves cancellation to the caller.** The documented
+  caller cancels superseded runs with `cancel-in-progress: true`. That is available because a
+  thin caller, not a ruleset-required workflow, is what reports `AI Review / required`. Should
+  the check ever be required from a pinned workflow instead, cancellation has to go — GitHub
+  advises against it there — and a superseded run would have to stop itself. That is not the
+  current design.
 - **The reviewer cannot validate a change to its own configuration.** A pull request here is
   reviewed by the self-caller's pinned revision, which is the revision the change replaces, so
   a claim about the new one is outside what that run can check. The first real check of a
   reviewer change is the next pull request after it merges.
 - **The superseded reusable AI review workflow is retained, not supported.** It stays for
   callers still pinned to it; the two composite actions are the adopted path.
+
+The operational hazards a change has to respect — how each toolchain is checked out and moved,
+why neither is a workspace member, why the integration project disables `fileParallelism` — are
+instructions rather than architecture, and [`AGENTS.md`](../AGENTS.md) owns them.
