@@ -223,8 +223,9 @@ packages to be published with provenance and neither this workflow nor the plugi
 
 The commit-analyzer's custom release rules (which commit `type`s trigger which SemVer
 bump, per ADR 0011's table) are embedded directly in the "Write semantic-release
-configuration" step's script, not read from a sibling file -- a reusable workflow cannot
-read a file from its own defining repository at run time, so embedding means the
+configuration" step's script, not read from a sibling file -- a reusable workflow gets no
+checkout of its own defining repository, so reading one would mean an extra checkout at
+`job.workflow_sha`, as the toolchain steps do. Embedding avoids it and means the
 caller's pinned commit SHA already guarantees which rules ran. Rule order matters:
 `{ breaking: true, release: 'major' }` must be evaluated before the rules that suppress
 `perf`/`revert`, because commit-analyzer ranks a `release: false` match as more severe

@@ -35,9 +35,14 @@ Where logic can live is decided by the artifact, not by how much of it there is.
 action runs from a checkout of this repository, so `ai-review/` keeps its behaviour in sibling
 ES modules — `build-prompt.mjs`, `collect-earlier-findings.mjs`, `contract.mjs`,
 `publish-result.mjs`, `review-state.mjs`, `run-reviewer.mjs` — which lint, type-check and
-unit-test like any other source. A reusable workflow cannot read a file from its own defining
-repository at run time, so `ci.yml` and `release.yml` embed their scripts deliberately;
-embedding is also what makes a caller's pinned SHA guarantee which script ran.
+unit-test like any other source.
+
+A reusable workflow has no such checkout: the workspace holds the caller's repository, not this
+one. It can still reach its own files, and both toolchain steps do, by checking this repository
+out explicitly at `job.workflow_sha`. `ci.yml` and `release.yml` embed their scripts anyway,
+because embedding costs no extra checkout and keeps the script inside the revision a caller
+pins — the SHA in a caller's `uses:` is the script that ran. Reading a file is an option to
+weigh against that, not one that is unavailable.
 
 Embedded does not mean untested. `tests/support/fixtures/workflowStep.fixture.ts` extracts a
 step's literal `run:` body from the workflow file, so a suite executes the exact text that
