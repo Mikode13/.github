@@ -129,7 +129,7 @@ test('a changed decision log uses its diff and trusted base without the full hea
 	assert.match(prompt, /trusted base of docs\/decisions\.md/u);
 });
 
-test('an oversized workflow remains incomplete despite being neither JavaScript nor TypeScript', () => {
+test('oversized files outside the diff-only set remain incomplete', () => {
 	const report = build(
 		workspace({ '.github/workflows/ci.yml': `name: CI\n${'# large\n'.repeat(200)}` }),
 		{ FILE_LIMIT: '1000' },
