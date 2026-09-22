@@ -3,6 +3,10 @@
 This repository contains MiKode's public organization profile, shared community health
 files, and centralized GitHub Actions workflows.
 
+[`docs/architecture.md`](docs/architecture.md) describes how those pieces fit together: what
+each artifact owns, the contracts consumers pin, and the constraints that follow from
+distributing automation by commit SHA. This document covers adopting them.
+
 ## Organization profile
 
 The profile shown on the organization page lives in [`profile/README.md`](profile/README.md).

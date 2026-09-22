@@ -15,6 +15,10 @@ workflows every other MiKode repository calls:
 It is a public, unpublished repository. Consumers pin its workflows and actions by commit SHA;
 they do not install a package from it.
 
+[`docs/architecture.md`](docs/architecture.md) owns the boundaries, the contracts and the
+trade-offs. Read it before placing a change, and update it in the same pull request when a
+change moves a boundary or a contract.
+
 ## Constraint specific to this repository
 
 Every consuming repository pins a full commit SHA of these workflows. A change here does
