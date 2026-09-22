@@ -57,6 +57,18 @@ jobs:
         run: |
           "$RUNNER_TEMP/actionlint" .github/workflows/*.yml workflow-templates/*.yml
 
+  # This repository ships the Documentation capability to every other one, so it runs it over
+  # its own Markdown too. `static` only formats: markdownlint's structure rules and the
+  # internal-link check live here, and a duplicate heading in README.md survived on main until
+  # this job existed. The scan covers `fixtures/` as well, which costs seconds and is harmless
+  # -- those files already pass under their own fixture jobs.
+  own_documentation:
+    name: this repository's documentation
+    uses: ./.github/workflows/ci.yml
+    with:
+      documentation: true
+      working_directory: .
+
   node:
     name: node fixture
     uses: ./.github/workflows/ci.yml
@@ -236,6 +248,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - static
+      - own_documentation
       - node
       - package
       - docs
@@ -256,6 +269,7 @@ jobs:
       PLUGIN_CONTENT_RESULT: ${{ needs.plugin_content.result }}
       E2E_RESULT: ${{ needs.end_to_end.result }}
       NODE_RESULT: ${{ needs.node.result }}
+      OWN_DOCUMENTATION_RESULT: ${{ needs.own_documentation.result }}
       PACKAGE_RESULT: ${{ needs.package.result }}
       STATIC_RESULT: ${{ needs.static.result }}
       TOOLCHAIN_MECHANICS_RESULT: ${{ needs.toolchain_mechanics.result }}
@@ -268,6 +282,7 @@ jobs:
 
           for result in \
             "static:$STATIC_RESULT" \
+            "own-documentation:$OWN_DOCUMENTATION_RESULT" \
             "node:$NODE_RESULT" \
             "package:$PACKAGE_RESULT" \
             "docs:$DOCS_RESULT" \

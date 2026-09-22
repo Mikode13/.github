@@ -3,6 +3,10 @@
 This repository contains MiKode's public organization profile, shared community health
 files, and centralized GitHub Actions workflows.
 
+[`docs/architecture.md`](docs/architecture.md) describes how those pieces fit together: what
+each artifact owns, the contracts consumers pin, and the constraints that follow from
+distributing automation by commit SHA. This document covers adopting them.
+
 ## Organization profile
 
 The profile shown on the organization page lives in [`profile/README.md`](profile/README.md).
@@ -122,7 +126,7 @@ Existing SHA-pinned callers remain compatible with the previous profile contract
 
 Callers must use either explicit capability inputs or the legacy profile contract, not both.
 
-### Caller contract
+### CI caller contract
 
 A repository caller must:
 
@@ -219,8 +223,9 @@ packages to be published with provenance and neither this workflow nor the plugi
 
 The commit-analyzer's custom release rules (which commit `type`s trigger which SemVer
 bump, per ADR 0011's table) are embedded directly in the "Write semantic-release
-configuration" step's script, not read from a sibling file -- a reusable workflow cannot
-read a file from its own defining repository at run time, so embedding means the
+configuration" step's script, not read from a sibling file -- a reusable workflow gets no
+checkout of its own defining repository, so reading one would mean an extra checkout at
+`job.workflow_sha`, as the toolchain steps do. Embedding avoids it and means the
 caller's pinned commit SHA already guarantees which rules ran. Rule order matters:
 `{ breaking: true, release: 'major' }` must be evaluated before the rules that suppress
 `perf`/`revert`, because commit-analyzer ranks a `release: false` match as more severe
@@ -268,7 +273,7 @@ sync:
 The workflow's own `workflow_run`/OIDC/publish path is not exercised by this repository's
 CI -- that can only be proven once a real consumer adopts it.
 
-### Caller contract
+### Release caller contract
 
 A consuming repository owns a thin caller workflow (not part of this repository) that:
 
