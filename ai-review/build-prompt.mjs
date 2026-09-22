@@ -182,8 +182,10 @@ const changedFileSection = () => {
 	if (diffOnly.length > 0) {
 		blocks.push(
 			`These files are reviewed through the diff above; their full head content is ` +
-				`intentionally not supplied: ${diffOnly.join(', ')}. ` +
-				`The trusted base of docs/decisions.md is supplied separately when available.`,
+				`intentionally not supplied: ${diffOnly.join(', ')}.` +
+				(diffOnly.includes('docs/decisions.md')
+					? ' The trusted base of docs/decisions.md is supplied separately when available.'
+					: ''),
 		);
 	}
 	return blocks.length > 0 ? blocks.join('\n\n') : null;

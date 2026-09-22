@@ -105,6 +105,7 @@ test('a changed lockfile is reviewed through its diff and never counts as an ove
 	assert.deepEqual(report.missingEssentials, []);
 	assert.doesNotMatch(prompt, /# resolution/u);
 	assert.match(prompt, /intentionally not supplied: pnpm-lock\.yaml/u);
+	assert.doesNotMatch(prompt, /trusted base of docs\/decisions\.md/u);
 });
 
 test('a changed decision log uses its diff and trusted base without the full head', () => {
@@ -125,6 +126,7 @@ test('a changed decision log uses its diff and trusted base without the full hea
 	assert.match(prompt, /\+New decision\./u);
 	assert.doesNotMatch(prompt, /head-only-history/u);
 	assert.match(prompt, /intentionally not supplied: docs\/decisions\.md/u);
+	assert.match(prompt, /trusted base of docs\/decisions\.md/u);
 });
 
 test('an oversized workflow remains incomplete despite being neither JavaScript nor TypeScript', () => {
