@@ -97,10 +97,13 @@ does supplying a reviewed file only in part, so a reviewed file over 40,000 byte
 missing too. Either way the run is abandoned as `incomplete` before the provider is called
 rather than after it returns a vague one.
 
-Lockfiles are the exception. A changed lockfile is reviewed through its diff, which already
-shows every package and version that moved; its full resolution graph adds size without review
-value, so it is never supplied whole and never counts as oversized. An untouched lockfile
-costs nothing, because only the files a pull request changes are supplied.
+Lockfiles and `docs/decisions.md` are the exceptions. A changed lockfile is reviewed through
+its diff, which shows every package and version that moved; its full resolution graph adds
+size without review value. The decision log's diff shows the changed decision, and its
+trusted base is supplied separately when it fits the prompt budget. Neither changed file is
+supplied whole or counts as oversized. Other Markdown and workflow files still need their
+full reviewed content, since their unchanged context can affect the change. An untouched
+lockfile costs nothing, because only the files a pull request changes are supplied.
 
 The prompt reaches `harness-cli` as a file through `--prompt-file`, so the model sets its size
 rather than the command line. The 1,250,000-byte budget is about 500,000 tokens at the roughly
@@ -207,7 +210,8 @@ any other reviewed content.
 - A pull request from a fork is not reviewed. `pull_request_target` would let its run read the
   environment, so `Analyze` refuses a fork before it starts and `Publish` reports a failing
   status; the reviewer assumes same-repository branches.
-- A reviewed file over 40,000 bytes, other than a lockfile, makes the run `incomplete`.
+- A reviewed file over 40,000 bytes, other than a lockfile or `docs/decisions.md`, makes the
+  run `incomplete`. The decision log is reviewed through its diff and trusted base.
 - The runner does not normalize intent. It supplies the closing issue and the description and
   asks the reviewer to resolve the change contract itself, rather than guessing which prose is
   an acceptance criterion.

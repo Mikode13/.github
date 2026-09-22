@@ -107,6 +107,36 @@ test('a changed lockfile is reviewed through its diff and never counts as an ove
 	assert.match(prompt, /intentionally not supplied: pnpm-lock\.yaml/u);
 });
 
+test('a changed decision log uses its diff and trusted base without the full head', () => {
+	const directories = workspace({
+		'docs/decisions.md': `# Revised decisions\n${'head-only-history\n'.repeat(200)}`,
+	});
+	write(join(directories.base, 'docs/decisions.md'), '# Trusted decisions\nPrior policy.\n');
+	write(
+		join(directories.evidence, 'change.diff'),
+		'diff --git a/docs/decisions.md b/docs/decisions.md\n+New decision.\n',
+	);
+	const report = build(directories, { FILE_LIMIT: '1000' });
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	assert.deepEqual(report.missingEssentials, []);
+	assert.match(prompt, /===== Trusted decisions .* =====\n# Trusted decisions\nPrior policy/u);
+	assert.match(prompt, /\+New decision\./u);
+	assert.doesNotMatch(prompt, /head-only-history/u);
+	assert.match(prompt, /intentionally not supplied: docs\/decisions\.md/u);
+});
+
+test('an oversized workflow remains incomplete despite being neither JavaScript nor TypeScript', () => {
+	const report = build(
+		workspace({ '.github/workflows/ci.yml': `name: CI\n${'# large\n'.repeat(200)}` }),
+		{ FILE_LIMIT: '1000' },
+	);
+
+	assert.equal(report.fits, false);
+	assert.match(report.missingEssentials[0], /\.github\/workflows\/ci\.yml/u);
+});
+
 test('the code review is supplied with the philosophy it reviews against', () => {
 	const directories = workspace({ 'src/small.js': 'export const small = 1;\n' });
 	write(
