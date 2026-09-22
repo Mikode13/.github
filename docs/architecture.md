@@ -111,8 +111,10 @@ reports the status explicitly against the reviewed commit. [`ai-review.md`](ai-r
 covers the behaviour in full.
 
 **This repository proving itself.** `validate-workflows.yml` calls `ci.yml` once per caller
-shape, each against a miniature real repository under `fixtures/`, and aggregates those runs
-plus the static checks into its own `CI / required`. A change to the capability contract is
+shape, each against a miniature real repository under `fixtures/`, and once more over this
+repository itself with the Documentation capability, so the documents consumers read to adopt
+a workflow get the same structure and internal-link checks that repository gets. Those runs and
+the static checks aggregate into its own `CI / required`. A change to the capability contract is
 therefore exercised through the real workflow rather than through a description of it, which
 is the only thing that can prove a workflow change works: the offline suites cannot invoke a
 real action.

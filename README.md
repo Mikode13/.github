@@ -126,7 +126,7 @@ Existing SHA-pinned callers remain compatible with the previous profile contract
 
 Callers must use either explicit capability inputs or the legacy profile contract, not both.
 
-### Caller contract
+### CI caller contract
 
 A repository caller must:
 
@@ -272,7 +272,7 @@ sync:
 The workflow's own `workflow_run`/OIDC/publish path is not exercised by this repository's
 CI -- that can only be proven once a real consumer adopts it.
 
-### Caller contract
+### Release caller contract
 
 A consuming repository owns a thin caller workflow (not part of this repository) that:
 
