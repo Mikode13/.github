@@ -52,8 +52,8 @@ const omissions = [];
 const oversized = [];
 const diffOnly = [];
 
-// A lockfile's change is its diff. The full resolution graph adds size, not review value, so a
-// changed lockfile is reviewed through the diff alone and never counts as an oversized file.
+// A lockfile's resolution graph and the cumulative decision log add little beyond their diff
+// and, for decisions, the separately supplied trusted base. Neither needs its full head file.
 const lockfiles = new Set([
 	'bun.lock',
 	'npm-shrinkwrap.json',
@@ -62,6 +62,7 @@ const lockfiles = new Set([
 	'yarn.lock',
 ]);
 const isLockfile = path => lockfiles.has(path.split('/').at(-1));
+const isDiffOnly = path => isLockfile(path) || path === 'docs/decisions.md';
 
 const readIfPresent = path => (existsSync(path) ? readFileSync(path, 'utf8') : null);
 const bytes = text => Buffer.byteLength(text, 'utf8');
@@ -165,7 +166,7 @@ const outputReminder =
 const changedFileSection = () => {
 	const blocks = [];
 	for (const path of changedFiles) {
-		if (isLockfile(path)) {
+		if (isDiffOnly(path)) {
 			diffOnly.push(path);
 			continue;
 		}
@@ -180,8 +181,11 @@ const changedFileSection = () => {
 	}
 	if (diffOnly.length > 0) {
 		blocks.push(
-			`Lockfiles are reviewed through the diff above, and their full content is ` +
-				`intentionally not supplied: ${diffOnly.join(', ')}.`,
+			`These files are reviewed through the diff above; their full head content is ` +
+				`intentionally not supplied: ${diffOnly.join(', ')}.` +
+				(diffOnly.includes('docs/decisions.md')
+					? ' The trusted base of docs/decisions.md is supplied separately when available.'
+					: ''),
 		);
 	}
 	return blocks.length > 0 ? blocks.join('\n\n') : null;

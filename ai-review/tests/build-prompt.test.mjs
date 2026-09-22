@@ -105,6 +105,38 @@ test('a changed lockfile is reviewed through its diff and never counts as an ove
 	assert.deepEqual(report.missingEssentials, []);
 	assert.doesNotMatch(prompt, /# resolution/u);
 	assert.match(prompt, /intentionally not supplied: pnpm-lock\.yaml/u);
+	assert.doesNotMatch(prompt, /trusted base of docs\/decisions\.md/u);
+});
+
+test('a changed decision log uses its diff and trusted base without the full head', () => {
+	const directories = workspace({
+		'docs/decisions.md': `# Revised decisions\n${'head-only-history\n'.repeat(200)}`,
+	});
+	write(join(directories.base, 'docs/decisions.md'), '# Trusted decisions\nPrior policy.\n');
+	write(
+		join(directories.evidence, 'change.diff'),
+		'diff --git a/docs/decisions.md b/docs/decisions.md\n+New decision.\n',
+	);
+	const report = build(directories, { FILE_LIMIT: '1000' });
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	assert.deepEqual(report.missingEssentials, []);
+	assert.match(prompt, /===== Trusted decisions .* =====\n# Trusted decisions\nPrior policy/u);
+	assert.match(prompt, /\+New decision\./u);
+	assert.doesNotMatch(prompt, /head-only-history/u);
+	assert.match(prompt, /intentionally not supplied: docs\/decisions\.md/u);
+	assert.match(prompt, /trusted base of docs\/decisions\.md/u);
+});
+
+test('oversized files outside the diff-only set remain incomplete', () => {
+	const report = build(
+		workspace({ 'docs/architecture.md': `# Architecture\n${'Other context.\n'.repeat(200)}` }),
+		{ FILE_LIMIT: '1000' },
+	);
+
+	assert.equal(report.fits, false);
+	assert.match(report.missingEssentials[0], /docs\/architecture\.md/u);
 });
 
 test('the code review is supplied with the philosophy it reviews against', () => {
