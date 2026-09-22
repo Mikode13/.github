@@ -376,10 +376,9 @@ real `actions/checkout` + move dance described above (via the
 checkout action at all, so no purely offline test could have caught a bug that only
 exists in that action's own runtime behavior.
 
-## Reusable AI review
+## AI review
 
-The reusable workflow at [`.github/workflows/ai-review.yml`](.github/workflows/ai-review.yml)
-implements the
+The two composite actions in [`ai-review/`](ai-review) implement the
 [automated pull request review standard](https://github.com/Mikode13/engineering/blob/main/standards/automated-pull-request-review.md).
 It reviews one exact pull request commit and reports the outcome as the commit status
 `AI Review / required`. Only a `BLOCKER` finding fails that status. `SHOULD FIX` and
@@ -387,19 +386,24 @@ It reviews one exact pull request commit and reports the outcome as the commit s
 already makes someone close before the merge, and one summary comment is updated in place on
 every review. The reviewer never approves, commits, resolves a conversation, or merges.
 
-The reviewer's code lives in [`ai-review/`](ai-review). The workflow checks out the commit
-that defines the running workflow, so a caller pinned to a SHA runs exactly the reviewer at
-that SHA. The reviewer, its skill and policy revisions, its model, and its harness version are frozen in
-that commit and change only through a reviewed pull request here.
+The caller pins both actions to the same full commit SHA. The reviewer, its skill and policy
+revisions, its model, and its harness version are frozen in that commit and change only
+through a reviewed pull request here. Existing callers of the reusable workflow at
+[`.github/workflows/ai-review.yml`](.github/workflows/ai-review.yml) retain their old pin;
+move them to the two actions when adopting this revision. A reusable workflow's environment
+secret was empty in the `slop-lab` canary even though the repository environment had the
+token, so do not promote the old caller pattern to another repository.
 
 The [AI review behaviour](docs/ai-review.md) document describes what a reviewed pull request
 sees: outcomes, findings, rechecks, and the evidence the reviewer receives.
 
 ### Caller setup
 
-A caller runs on `pull_request_target`, so GitHub takes the caller and this workflow from the
-default branch and never from the pull request. It grants the permissions the two jobs use
-and cancels a review that a new commit supersedes:
+A caller runs on `pull_request_target`, so GitHub takes the caller from its default branch,
+never from the pull request. The analysis job belongs to the caller repository and declares
+its protected `ai-review` environment. The publication job has write permissions and no
+provider credential. Both call actions pinned to the same reviewed commit and a new commit
+cancels an older review:
 
 ```yaml
 name: AI Review
@@ -421,27 +425,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ai-review:
-    name: AI Review
+  analyze:
+    name: Analyze
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: ai-review
     permissions:
       checks: read
       contents: read
       issues: read
+      pull-requests: read
+    outputs:
+      report: ${{ steps.review.outputs.report }}
+    steps:
+      - name: Analyze the pull request
+        id: review
+        uses: Mikode13/.github/ai-review/analyze@<full commit SHA>
+        with:
+          provider_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  publish:
+    name: Publish
+    needs: analyze
+    if: always() && github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
       pull-requests: write
       statuses: write
-    uses: Mikode13/.github/.github/workflows/ai-review.yml@<full commit SHA>
+    steps:
+      - name: Publish the result
+        uses: Mikode13/.github/ai-review/publish@<same full commit SHA>
+        with:
+          analyze_result: ${{ needs.analyze.result }}
+          report: ${{ needs.analyze.outputs.report }}
 ```
 
-Pin a full commit SHA, never a branch. The workflow has no inputs; its behaviour belongs to
-the pinned revision.
+Use the actual same full commit SHA in both `uses` lines, never a branch. The reviewer's
+behaviour belongs to the pinned revision. This repository is public; the caller can refer to
+the pinned actions directly without configuring access to private actions.
 
 ### Credential
 
 The provider token, `CLAUDE_CODE_OAUTH_TOKEN`, belongs in an `ai-review` environment of the
 caller repository, with deployment branches limited to the default branch, and nowhere else.
 Any workflow a branch runs can read a repository or organization secret, but only a run from
-the default branch can declare that environment. Only the analysis job declares it; the
-publication job holds the write permissions and no provider credential.
+the default branch can declare that environment. Only the caller's analysis job declares it;
+the publication job holds the write permissions and no provider credential. If the credential
+is unavailable, the analysis returns an explicit `incomplete` result without invoking the
+provider, and the publication job reports a failing status.
 
 ```sh
 claude setup-token

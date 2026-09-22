@@ -167,6 +167,70 @@ jobs:
           RELEASE_TOOLCHAIN_DIRECTORY: ${{ runner.temp }}/mikode-release-toolchain/release-toolchain
         run: pnpm exec vitest run --project integration tests/integration/releaseToolchain.integration.test.ts
 
+  ai_review_smoke:
+    name: AI review action smoke
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the proposed actions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # This fixture runs under pull_request, with no environment or provider credential. It
+      # replaces only the CI check and the publisher's GitHub writes; both composite actions
+      # still execute through the runner, including their output and failure semantics.
+      - name: Stub the CI check and status publication
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ai-review-smoke-bin"
+          cat > "$RUNNER_TEMP/ai-review-smoke-bin/gh" <<'SH'
+          #!/usr/bin/env bash
+          if [[ "$1" != api ]]; then exit 1; fi
+          case "$2" in
+            repos/*/commits/*/check-runs*) echo failure ;;
+            repos/*/statuses/*) printf '%s\n' "$*" >> "$AI_REVIEW_SMOKE_STATUS" ;;
+            *) echo "Unexpected gh API request: $2" >&2; exit 1 ;;
+          esac
+          SH
+          chmod +x "$RUNNER_TEMP/ai-review-smoke-bin/gh"
+          echo "$RUNNER_TEMP/ai-review-smoke-bin" >> "$GITHUB_PATH"
+          echo "AI_REVIEW_SMOKE_STATUS=$RUNNER_TEMP/ai-review-smoke-status" >> "$GITHUB_ENV"
+
+      - name: Analyze a failing CI check without a provider credential
+        if: github.event_name == 'pull_request'
+        id: analyze_smoke
+        continue-on-error: true
+        uses: ./ai-review/analyze
+        with:
+          provider_token: ''
+
+      - name: Publish against the local API fixture
+        if: github.event_name == 'pull_request'
+        id: publish_smoke
+        continue-on-error: true
+        uses: ./ai-review/publish
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/tests/fixtures/ai-review-smoke-api.mjs
+          AI_REVIEW_SMOKE_REQUESTS: ${{ runner.temp }}/ai-review-smoke-requests.jsonl
+        with:
+          analyze_result: ${{ steps.analyze_smoke.outcome }}
+          report: ${{ steps.analyze_smoke.outputs.report }}
+
+      - name: Verify the actions failed closed and published only to fixtures
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          ANALYZE_OUTCOME: ${{ steps.analyze_smoke.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish_smoke.outcome }}
+          REPORT: ${{ steps.analyze_smoke.outputs.report }}
+        run: |
+          [[ "$ANALYZE_OUTCOME" == failure && "$PUBLISH_OUTCOME" == failure ]]
+          jq -e '.outcome == "incomplete" and (.errors[0] | contains("CI / required"))' <<< "$REPORT"
+          jq -e 'select(.method == "POST" and (.route | endswith("/comments"))) | .body | fromjson | .body | contains("CI / required")' \
+            "$RUNNER_TEMP/ai-review-smoke-requests.jsonl"
+          grep -q 'state=failure' "$AI_REVIEW_SMOKE_STATUS"
+
   required:
     name: CI / required
     if: ${{ always() }}
@@ -181,6 +245,7 @@ jobs:
       - plugin_content
       - end_to_end
       - toolchain_mechanics
+      - ai_review_smoke
     runs-on: ubuntu-latest
     permissions: {}
     env:
@@ -194,6 +259,7 @@ jobs:
       PACKAGE_RESULT: ${{ needs.package.result }}
       STATIC_RESULT: ${{ needs.static.result }}
       TOOLCHAIN_MECHANICS_RESULT: ${{ needs.toolchain_mechanics.result }}
+      AI_REVIEW_SMOKE_RESULT: ${{ needs.ai_review_smoke.result }}
     steps:
       - name: Verify validation jobs
         shell: bash
@@ -210,7 +276,8 @@ jobs:
             "docs-source:$DOCS_SOURCE_RESULT" \
             "plugin-content:$PLUGIN_CONTENT_RESULT" \
             "end-to-end:$E2E_RESULT" \
-            "toolchain-mechanics:$TOOLCHAIN_MECHANICS_RESULT"
+            "toolchain-mechanics:$TOOLCHAIN_MECHANICS_RESULT" \
+            "ai-review-smoke:$AI_REVIEW_SMOKE_RESULT"
           do
             job="${result%%:*}"
             status="${result#*:}"
