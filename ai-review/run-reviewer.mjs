@@ -209,6 +209,10 @@ if (!buildReport.fits) {
 			: `The diff and the mandatory context alone need ${buildReport.bytes} bytes, which ` +
 				`exceeds the ${buildReport.limit}-byte review budget.`,
 	];
+} else if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+	errors = [
+		'The provider credential is unavailable. Check the CLAUDE_CODE_OAUTH_TOKEN secret in the ai-review environment of the calling repository.',
+	];
 } else {
 	attempts = 1;
 	let attempt = interpret(await runTurn(promptPath));

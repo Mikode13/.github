@@ -12,7 +12,8 @@ workflows every other MiKode repository calls:
   [automated npm publication standard](https://github.com/Mikode13/engineering/blob/main/standards/automated-npm-publication.md).
 - [`profile/README.md`](profile/README.md) is the organization profile.
 
-It is a private, unpublished repository. Nothing here is installed by a consumer.
+It is a public, unpublished repository. Consumers pin its workflows and actions by commit SHA;
+they do not install a package from it.
 
 ## Constraint specific to this repository
 
@@ -47,9 +48,9 @@ testing standard's own definition, and they are slow for that reason.
 status contract validation, as the git workflow standard requires.
 
 Pull requests additionally run `actionlint` and exercise every retained profile and
-capability through the reusable workflow itself, in `validate-workflows.yml`. A fixture
-job is the only thing that proves a workflow change actually works; the offline scripts
-cannot invoke a real action.
+capability through the reusable workflow itself, in `validate-workflows.yml`. The AI review
+actions also have a no-provider smoke job. A fixture job is the only thing that proves a
+workflow or action change actually works; the offline scripts cannot invoke a real action.
 
 ### Hazards
 

@@ -1,0 +1,163 @@
+# The caller uses this action at an immutable reviewed SHA on pull_request_target.
+name: Analyze a pull request
+description: Collects untrusted PR evidence and runs the pinned central reviewer. The caller owns the protected environment.
+inputs:
+  provider_token:
+    description: Secret from the caller repository ai-review environment.
+    required: true
+outputs:
+  report:
+    description: The validated review report or the CI failure reason.
+    value: ${{ steps.review.outputs.report || steps.ci.outputs.report }}
+runs:
+  using: composite
+  steps:
+    - name: Prepare review context
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        TRUSTED_BASE: ${{ github.sha }}
+        REVIEWED_HEAD: ${{ github.event.pull_request.head.sha }}
+        PULL_NUMBER: ${{ github.event.pull_request.number }}
+        TARGET_REPOSITORY: ${{ github.repository }}
+      run: |
+        {
+          printf '%s\n' "BASE_SHA=${TRUSTED_BASE}" "HEAD_SHA=${REVIEWED_HEAD}" \
+            "PR_NUMBER=${PULL_NUMBER}" "REPOSITORY=${TARGET_REPOSITORY}"
+          printf '%s\n' "BASE_DIR=${RUNNER_TEMP}/base" "EVIDENCE_DIR=${RUNNER_TEMP}/evidence" \
+            "HEAD_DIR=${GITHUB_WORKSPACE}/head" "OUTPUT_DIR=${RUNNER_TEMP}/work" \
+            "POLICY_DIR=${RUNNER_TEMP}/policy" "REVIEWER_DIR=${ACTION_PATH}/.." \
+            "SKILL_DIR=${RUNNER_TEMP}/skill"
+          printf '%s\n' "HARNESS_PACKAGE=@mikode13/harness-cli@1.1.0"
+          printf '%s\n' "SKILL_REVISION=e62054e152ddab286f7325e8830170a22ee722d7"
+          printf '%s\n' "POLICY_REVISION=8f4d69b04905295c37d616be7b9300acc2dc781e"
+          printf '%s\n' "REVIEW_MODEL=opus"
+          printf '%s\n' "REVIEW_EFFORT=high"
+          printf '%s\n' "REVIEW_TIMEOUT_SECONDS=900"
+        } >> "$GITHUB_ENV"
+        mkdir -p "${RUNNER_TEMP}/base" "${RUNNER_TEMP}/evidence" "${RUNNER_TEMP}/work" \
+          "${RUNNER_TEMP}/policy" "${RUNNER_TEMP}/skill"
+    - name: Wait for deterministic CI
+      id: ci
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # Each way this step stops is reported as the reason the review is incomplete, so the
+        # summary says what to do instead of only that the analysis failed.
+        stop() {
+          echo "$1"
+          delimiter="report-${RANDOM}${RANDOM}"
+          {
+            printf 'report<<%s\n' "$delimiter"
+            jq --compact-output --null-input --arg reason "$1" \
+              '{valid: false, outcome: "incomplete", errors: [$reason]}'
+            printf '%s\n' "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+          exit 1
+        }
+
+        for attempt in $(seq 1 60); do
+          conclusion="$(gh api "repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name == "CI / required")] | sort_by(.started_at) | last | .conclusion // ""')"
+
+          if [ "$conclusion" = "success" ]; then
+            exit 0
+          fi
+
+          case "$conclusion" in
+            action_required | cancelled | failure | neutral | skipped | stale | timed_out)
+              stop "\`CI / required\` finished as ${conclusion}, so there is nothing worth reviewing yet. A commit that fixes it starts a new review."
+              ;;
+          esac
+
+          # GitHub does not run pull request workflows while the branch conflicts with its base,
+          # so no CI result will come until someone resolves the conflict.
+          state="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.mergeable_state')"
+          if [ "$state" = "dirty" ]; then
+            stop "The pull request conflicts with \`main\`, and GitHub runs no CI on it until the conflict is resolved. Resolving it starts a new review."
+          fi
+
+          echo "Waiting for CI / required (attempt ${attempt} of 60)."
+          sleep 10
+        done
+
+        stop "\`CI / required\` did not finish within ten minutes. Re-run this review once it has."
+      shell: bash
+    - name: Check out the reviewed commit
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        fetch-depth: 0
+        path: head
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha }}
+    - name: Extract the trusted base revision
+      working-directory: head
+      run: git archive "$BASE_SHA" | tar -x -C "$BASE_DIR"
+      shell: bash
+    - name: Collect the reviewed change
+      working-directory: head
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git diff --no-ext-diff --unified=3 "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/change.diff"
+        git diff --name-only "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/changed-files.txt"
+
+        gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" > "${EVIDENCE_DIR}/pull-request.json"
+
+        # The change contract comes from the issue the pull request closes. An issue merely
+        # mentioned in the description is not that contract, so only a closing reference counts.
+        # The query's variables are GraphQL's, not the shell's, so they stay in single quotes.
+        # shellcheck disable=SC2016
+        gh api graphql \
+          -f owner="${GITHUB_REPOSITORY_OWNER}" \
+          -f name="${REPOSITORY#*/}" \
+          -F number="${PR_NUMBER}" \
+          -f query='
+            query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  closingIssuesReferences(first: 1) {
+                    nodes { url body }
+                  }
+                }
+              }
+            }' \
+          --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[0] | select(. != null) | {html_url: .url, body: .body}' \
+          > "${EVIDENCE_DIR}/issue.json"
+
+        if [ ! -s "${EVIDENCE_DIR}/issue.json" ]; then
+          rm -f "${EVIDENCE_DIR}/issue.json"
+          echo "This pull request closes no issue; the reviewer must resolve intent from its description."
+        fi
+      shell: bash
+    - name: Install the pinned review skill and policy
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        curl --fail --silent --show-error --location \
+          "https://codeload.github.com/Mikode13/skills/tar.gz/${SKILL_REVISION}" \
+          | tar -xz --strip-components=1 -C "$SKILL_DIR"
+
+        for standard in automated-pull-request-review documentation git-workflow; do
+          gh api "repos/Mikode13/engineering/contents/standards/${standard}.md?ref=${POLICY_REVISION}" \
+            --header 'Accept: application/vnd.github.raw+json' > "${POLICY_DIR}/${standard}.md"
+        done
+      shell: bash
+    - name: Set up Node.js
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+      with:
+        node-version: 24
+    - name: Collect the findings earlier reviews published
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node "${REVIEWER_DIR}/collect-earlier-findings.mjs"
+      shell: bash
+    - name: Build the review prompt
+      run: node "${REVIEWER_DIR}/build-prompt.mjs"
+      shell: bash
+    - name: Review the pull request
+      id: review
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.provider_token }}
+      run: node "${REVIEWER_DIR}/run-reviewer.mjs"
+      shell: bash
