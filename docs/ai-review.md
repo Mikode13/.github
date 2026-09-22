@@ -73,9 +73,9 @@ uses the protected `ai-review` environment, whose deployment branches are restri
 environment secret in this repository before activating the caller. A repository or
 organization secret can be read by untrusted branch workflows and must not be used here.
 
-The caller can run only after this workflow is merged to `main`. Before merging, replace the
-two action pins with the actual commit of `main` containing the actions; a squash merge of the
-actions pull request changes its SHA. Then create or update a separate, non-draft test pull
+The caller can run only after this workflow is merged to `main`. Both actions pin the
+merged commit of the actions pull request. When moving the pins after another squash merge,
+use the resulting commit on `main`. Then create or update a separate, non-draft test pull
 request to trigger a real review. The `AI Review / required` commit status is advisory until
 GitHub can require it from a source a branch cannot impersonate. Keep it out of the shared
 `required-ci` ruleset; the review conversations still require resolution.
