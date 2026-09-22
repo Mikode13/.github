@@ -29,12 +29,18 @@ leaves provider, runtime, and severity rules to the standard.
 
 The pinned policy now includes
 [ADR 0018](https://github.com/Mikode13/engineering/blob/main/adr/0018-require-project-owned-architecture-documentation.md),
-so the documentation standard the reviewer reads requires `docs/architecture.md`. A repository
-that has none, or whose document materially contradicts the project, receives a blocking
-finding; wording drift with no architectural consequence does not. The
+so the documentation standard the reviewer reads treats `docs/architecture.md` as a required
+project artifact and as the authoritative context for the architecture perspective.
+
+One part of that standard does not take effect with this pin. It asks for a missing
+architecture document to be reported as a blocking finding, and the
 [architecture review skill](https://github.com/Mikode13/skills/blob/main/skills/mikode-architecture-review/SKILL.md)
-the prompt already carries is what applies it. Add that document to a repository before moving
-its caller to this revision.
+pinned at `e62054e` says the opposite: with no document it infers boundaries from the code, and
+"absence alone is not a finding or an incomplete review". That is the newest skill revision
+that exists, so there is nothing to move `SKILL_REVISION` to. A document that materially
+contradicts the project can still be found, because the skill compares documentation with
+code; a missing one is not blocked yet. Reconciling the two is a change in `Mikode13/skills`,
+not here.
 
 ## What runs
 
