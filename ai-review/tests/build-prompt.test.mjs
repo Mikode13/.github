@@ -131,12 +131,12 @@ test('a changed decision log uses its diff and trusted base without the full hea
 
 test('oversized files outside the diff-only set remain incomplete', () => {
 	const report = build(
-		workspace({ '.github/workflows/ci.yml': `name: CI\n${'# large\n'.repeat(200)}` }),
+		workspace({ 'docs/architecture.md': `# Architecture\n${'Other context.\n'.repeat(200)}` }),
 		{ FILE_LIMIT: '1000' },
 	);
 
 	assert.equal(report.fits, false);
-	assert.match(report.missingEssentials[0], /\.github\/workflows\/ci\.yml/u);
+	assert.match(report.missingEssentials[0], /docs\/architecture\.md/u);
 });
 
 test('the code review is supplied with the philosophy it reviews against', () => {
