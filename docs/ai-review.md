@@ -14,7 +14,7 @@ revision of [the actions](../ai-review). A change is a reviewed pull request her
 | Choice           | Value                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------- |
 | Reviewer command | `@mikode13/harness-cli@1.1.0`, with the prompt passed through `--prompt-file`                 |
-| Review skill     | `mikode-review` from `Mikode13/skills` at `e62054e`, release 1.0.1                            |
+| Review skill     | `mikode-review` from `Mikode13/skills` at `845dd2e`, release 1.0.2                            |
 | Provider         | Claude, on a MiKode-owned account, through `CLAUDE_CODE_OAUTH_TOKEN`                          |
 | Model and effort | `opus` at `high` reasoning effort                                                             |
 | Provider timeout | 15 minutes per turn, enforced by the runner                                                   |
@@ -26,6 +26,21 @@ revision of [the actions](../ai-review). A change is a reviewed pull request her
 Since [Mikode13/engineering#41](https://github.com/Mikode13/engineering/pull/41), the standard
 describes `harness-cli` and the merge rules the reviewer follows. ADR 0017 needed no change: it
 leaves provider, runtime, and severity rules to the standard.
+
+The pinned policy now includes
+[ADR 0018](https://github.com/Mikode13/engineering/blob/main/adr/0018-require-project-owned-architecture-documentation.md),
+so the documentation standard the reviewer reads makes `docs/architecture.md` a required
+project artifact, and asks for a missing one, or one that materially contradicts the project,
+to be reported as a blocking finding. Minor wording drift with no architectural consequence
+is not promoted to one.
+
+`SKILL_REVISION` moves with it, and has to. The
+[architecture review skill](https://github.com/Mikode13/skills/blob/main/skills/mikode-architecture-review/SKILL.md)
+used to settle the question itself — "absence alone is not a finding" — which would have left
+policy and skill disagreeing about the same repository. Since
+[Mikode13/skills#19](https://github.com/Mikode13/skills/pull/19) it defers to the applicable
+documentation policy instead, the way it already defers a missing decision record, so the two
+now say the same thing. A repository adopting this revision needs its architecture document.
 
 ## What runs
 
