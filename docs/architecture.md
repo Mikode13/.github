@@ -26,7 +26,7 @@ that proves they work:
 | Artifact                                             | What it is                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `.github/workflows/*.yml` with `workflow_call`       | Reusable workflows: CI, release, plugin version, plugin release, superseded AI review |
-| `ai-review/analyze`, `ai-review/publish`             | Composite actions, with the repository's only real executable logic beside them       |
+| `ai-review/analyze`, `ai-review/publish`             | Composite actions, with their behaviour in sibling ES modules                         |
 | `docs-toolchain/`, `release-toolchain/`              | Dependency graphs frozen by their own lockfiles, installed at run time                |
 | `profile/`, `workflow-templates/`                    | Organization-level GitHub content                                                     |
 | `fixtures/`, `tests/`, `scripts/`, `ai-review/tests` | This repository's own validation                                                      |
