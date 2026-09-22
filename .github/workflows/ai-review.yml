@@ -24,7 +24,7 @@ env:
   # this file, which callers adopt by moving their pin.
   HARNESS_PACKAGE: '@mikode13/harness-cli@1.1.0'
   SKILL_REVISION: e62054e152ddab286f7325e8830170a22ee722d7
-  POLICY_REVISION: 8f4d69b04905295c37d616be7b9300acc2dc781e
+  POLICY_REVISION: ae7a364c7ab83e9d155d1f6948c243e509caffb3
   REVIEW_MODEL: opus
   REVIEW_EFFORT: high
   REVIEW_TIMEOUT_SECONDS: '900'

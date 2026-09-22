@@ -27,6 +27,15 @@ Since [Mikode13/engineering#41](https://github.com/Mikode13/engineering/pull/41)
 describes `harness-cli` and the merge rules the reviewer follows. ADR 0017 needed no change: it
 leaves provider, runtime, and severity rules to the standard.
 
+The pinned policy now includes
+[ADR 0018](https://github.com/Mikode13/engineering/blob/main/adr/0018-require-project-owned-architecture-documentation.md),
+so the documentation standard the reviewer reads requires `docs/architecture.md`. A repository
+that has none, or whose document materially contradicts the project, receives a blocking
+finding; wording drift with no architectural consequence does not. The
+[architecture review skill](https://github.com/Mikode13/skills/blob/main/skills/mikode-architecture-review/SKILL.md)
+the prompt already carries is what applies it. Add that document to a repository before moving
+its caller to this revision.
+
 ## What runs
 
 The review runs for an internal, non-draft pull request targeting `main` when the pull request
