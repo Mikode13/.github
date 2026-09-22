@@ -14,7 +14,7 @@ revision of [the actions](../ai-review). A change is a reviewed pull request her
 | Choice           | Value                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------- |
 | Reviewer command | `@mikode13/harness-cli@1.1.0`, with the prompt passed through `--prompt-file`                 |
-| Review skill     | `mikode-review` from `Mikode13/skills` at `e62054e`, release 1.0.1                            |
+| Review skill     | `mikode-review` from `Mikode13/skills` at `845dd2e`, release 1.0.2                            |
 | Provider         | Claude, on a MiKode-owned account, through `CLAUDE_CODE_OAUTH_TOKEN`                          |
 | Model and effort | `opus` at `high` reasoning effort                                                             |
 | Provider timeout | 15 minutes per turn, enforced by the runner                                                   |
@@ -29,18 +29,18 @@ leaves provider, runtime, and severity rules to the standard.
 
 The pinned policy now includes
 [ADR 0018](https://github.com/Mikode13/engineering/blob/main/adr/0018-require-project-owned-architecture-documentation.md),
-so the documentation standard the reviewer reads treats `docs/architecture.md` as a required
-project artifact and as the authoritative context for the architecture perspective.
+so the documentation standard the reviewer reads makes `docs/architecture.md` a required
+project artifact, and asks for a missing one, or one that materially contradicts the project,
+to be reported as a blocking finding. Minor wording drift with no architectural consequence
+is not promoted to one.
 
-One part of that standard does not take effect with this pin. It asks for a missing
-architecture document to be reported as a blocking finding, and the
+`SKILL_REVISION` moves with it, and has to. The
 [architecture review skill](https://github.com/Mikode13/skills/blob/main/skills/mikode-architecture-review/SKILL.md)
-pinned at `e62054e` says the opposite: with no document it infers boundaries from the code, and
-"absence alone is not a finding or an incomplete review". That is the newest skill revision
-that exists, so there is nothing to move `SKILL_REVISION` to. A document that materially
-contradicts the project can still be found, because the skill compares documentation with
-code; a missing one is not blocked yet. Reconciling the two is a change in `Mikode13/skills`,
-not here.
+used to settle the question itself — "absence alone is not a finding" — which would have left
+policy and skill disagreeing about the same repository. Since
+[Mikode13/skills#19](https://github.com/Mikode13/skills/pull/19) it defers to the applicable
+documentation policy instead, the way it already defers a missing decision record, so the two
+now say the same thing. A repository adopting this revision needs its architecture document.
 
 ## What runs
 

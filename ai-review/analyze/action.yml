@@ -29,7 +29,7 @@ runs:
             "POLICY_DIR=${RUNNER_TEMP}/policy" "REVIEWER_DIR=${ACTION_PATH}/.." \
             "SKILL_DIR=${RUNNER_TEMP}/skill"
           printf '%s\n' "HARNESS_PACKAGE=@mikode13/harness-cli@1.1.0"
-          printf '%s\n' "SKILL_REVISION=e62054e152ddab286f7325e8830170a22ee722d7"
+          printf '%s\n' "SKILL_REVISION=845dd2e60a550fb8f5f22c446f5e779b772f93dc"
           printf '%s\n' "POLICY_REVISION=ae7a364c7ab83e9d155d1f6948c243e509caffb3"
           printf '%s\n' "REVIEW_MODEL=opus"
           printf '%s\n' "REVIEW_EFFORT=high"
