@@ -37,7 +37,7 @@ jobs:
     steps:
       - name: Analyze the pull request
         id: review
-        uses: Mikode13/.github/ai-review/analyze@d383d919b62d1490fb727fedaa2761b8c53ef41c
+        uses: Mikode13/.github/ai-review/analyze@c1085679811ab868a7908d37e73d5043854b1266
         with:
           provider_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -53,7 +53,7 @@ jobs:
       statuses: write
     steps:
       - name: Publish the result
-        uses: Mikode13/.github/ai-review/publish@d383d919b62d1490fb727fedaa2761b8c53ef41c
+        uses: Mikode13/.github/ai-review/publish@c1085679811ab868a7908d37e73d5043854b1266
         with:
           analyze_result: ${{ needs.analyze.result }}
           report: ${{ needs.analyze.outputs.report }}
