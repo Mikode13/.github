@@ -5,6 +5,11 @@
 MiKode is a public, source-available software engineering lab focused on understanding
 what happens beneath the abstractions we use every day.
 
+MiKode is a personal project created and led by **Miguel Ángel “Miki” Palao Palmer**.
+I use it to learn in public, build tools I can explain and maintain, and document the
+engineering decisions behind them. Find me on [GitHub](https://github.com/mikipp13)
+and [LinkedIn](https://www.linkedin.com/in/miguel-angel-palao-palmer/).
+
 We build small, focused versions of libraries, developer tools, and AI agent systems; use
 them in real projects; and document the decisions, trade-offs, mistakes, and redesigns
 along the way.
