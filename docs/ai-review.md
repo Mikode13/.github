@@ -165,11 +165,12 @@ Opus 5's 1M-token window, which leaves room for the agent's own prompt and the r
 earlier 50% was a heuristic: a long context degrades the review gradually, with no published
 threshold for Opus 5. The maintainer chose 66% because the slide is reported to become more
 noticeable around there, and because large integration pull requests keep needing more than
-half. `Mikode13/harness` pull request 93, with an 858 KB diff, needed about 2.03 MB when its
-508 KB of added files were sent twice; without the repetition it needs roughly 1.5 MB, which
-fits. The report records the tokens `harness-cli` returns, but that figure cannot confirm the
-ratio yet: `harness` counts only uncached input, so the first real review reported 2 input
-tokens for a 143,506-byte prompt.
+half. `Mikode13/harness` pull request 93 at `df9ae89`, with an 858,212-byte diff and 508,310
+bytes of added files, needed 2,129,280 bytes while those files were sent twice. This revision
+builds it in 1,607,487 bytes, which fits with 42,513 to spare, and none of its modified files
+exceeds its new limit. The report records the tokens `harness-cli` returns, but that figure
+cannot confirm the ratio yet: `harness` counts only uncached input, so the first real review
+reported 2 input tokens for a 143,506-byte prompt.
 
 Measured against the pinned skill and the current standards:
 
