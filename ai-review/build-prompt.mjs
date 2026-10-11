@@ -204,6 +204,10 @@ const realHead = realpathSync(headDirectory);
  * exactly its own place inside the checkout is a link the pull request put there: the path is
  * reported as `beneath-link` and never read, wherever the link points. The last component is
  * checked with lstat, so a link there is reported as what it is rather than followed.
+ *
+ * A path the pull request can make impossible to inspect, such as one beneath a link that loops
+ * (ELOOP), is reported as `{ uninspectable: code }` rather than aborting the build, so
+ * no branch can deny itself a completed review. Only a path that is gone counts as absent.
  */
 const headEntry = path => {
 	try {
@@ -215,13 +219,14 @@ const headEntry = path => {
 	} catch (error) {
 		// Gone, or beneath what is now a file: either way the path no longer exists at head.
 		if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return 'absent';
-		throw error;
+		return { uninspectable: error.code ?? 'an unknown error' };
 	}
 };
 
 const changedFileSection = () => {
 	const blocks = [];
 	const notRegular = [];
+	const uninspectable = [];
 	for (const path of changedFiles) {
 		if (addedInDiff.has(path)) continue;
 		if (isDiffOnly(path)) {
@@ -231,10 +236,16 @@ const changedFileSection = () => {
 		const entry = headEntry(path);
 		// Deleted at head: the diff shows the whole removal.
 		if (entry === 'absent') continue;
+		if (typeof entry === 'object') {
+			uninspectable.push(`${quoted(path)} (${entry.uninspectable})`);
+			continue;
+		}
 		if (entry !== 'file') {
 			notRegular.push(path);
 			continue;
 		}
+		// Not guarded: the path was just checked to be a regular file inside the checkout, which a
+		// pull request cannot make unreadable, so a failure here means the checkout itself broke.
 		const content = readFileSync(join(headDirectory, path), 'utf8');
 		const limit = fileLimitFor(path);
 		if (bytes(content) > limit.bytes) {
@@ -256,6 +267,13 @@ const changedFileSection = () => {
 				`submodule, a symbolic link or a path beneath one, so the diff above is their whole ` +
 				`change: ` +
 				`${notRegular.map(quoted).join(', ')}.`,
+		);
+	}
+	if (uninspectable.length > 0) {
+		blocks.push(
+			`These changed paths could not be inspected at the reviewed revision, so their head ` +
+				`content is not supplied and the diff above is all there is of them: ` +
+				`${uninspectable.join(', ')}.`,
 		);
 	}
 	if (diffOnly.length > 0) {

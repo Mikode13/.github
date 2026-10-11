@@ -163,6 +163,12 @@ there, so a parent directory that does not resolve to exactly its own place in t
 link the pull request added. No link, at the path or along it, can pull a file from outside the
 checkout into the prompt.
 
+A changed path that cannot be inspected at all, such as one beneath a link that loops or beneath
+an unreadable directory, is named in the prompt with the error code and is never read either. A
+pull request cannot abort its own review this way. Only a path that no longer exists is treated
+as deleted. Reading a file already checked to be a regular file inside the checkout is not
+guarded: a failure there means the checkout itself is broken, and the analysis job fails.
+
 The prompt reaches `harness-cli` as a file through `--prompt-file`, so the model sets its size
 rather than the command line. The 1,650,000-byte budget is about 660,000 tokens at the roughly
 2.5 characters per token that Anthropic documents for the current tokenizer. That is 66% of
