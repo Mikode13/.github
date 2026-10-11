@@ -36,12 +36,25 @@ const policyDirectory = environment('POLICY_DIR');
 const policyRevision = environment('POLICY_REVISION');
 const outputDirectory = environment('OUTPUT_DIR');
 
-// About 500,000 tokens at the roughly 2.5 characters per token that Anthropic documents for the
-// current tokenizer: half of Opus 5's 1M-token window, which leaves room for the agent's own
-// prompt and the reply and stays below the length at which a long context degrades the review.
-// Every run reports its input tokens, so the first real runs can confirm the ratio.
-const promptLimit = Number(process.env.PROMPT_LIMIT ?? 1_250_000);
-const fileLimit = Number(process.env.FILE_LIMIT ?? 40_000);
+// About 660,000 tokens at the roughly 2.5 characters per token that Anthropic documents for the
+// current tokenizer: 66% of Opus 5's 1M-token window, which leaves room for the agent's own
+// prompt and the reply. The earlier 50% was a heuristic. A long context degrades the review
+// gradually, with no published threshold for Opus 5; the slide is reported to become more
+// noticeable around two thirds of the window, and large integration pull requests keep needing
+// more than half of it, so the maintainer chose 66%. Every run reports its input tokens, so real
+// runs can confirm the ratio.
+const promptLimit = Number(process.env.PROMPT_LIMIT ?? 1_650_000);
+
+// A reviewed file supplied only in part would be judged unseen, so each one has a ceiling.
+// Markdown is loaded whole and keeps growing, as a project's docs/architecture.md does, so it
+// gets twice the room of code. Both are powers of two by the maintainer's choice.
+const codeFileLimit = Number(process.env.FILE_LIMIT ?? 65_536);
+const markdownFileLimit = Number(process.env.MARKDOWN_FILE_LIMIT ?? 131_072);
+const isMarkdown = path => /\.(?:md|markdown|mdx)$/iu.test(path);
+const fileLimitFor = path =>
+	isMarkdown(path)
+		? { bytes: markdownFileLimit, name: 'Markdown file limit' }
+		: { bytes: codeFileLimit, name: 'file limit' };
 
 // Declared omissions are discovered while sections are selected, so the budget keeps room for
 // them rather than re-running the selection once the normalized input has grown.
@@ -73,9 +86,14 @@ const diff = readFileSync(join(evidenceDirectory, 'change.diff'), 'utf8');
 const earlierFindings = JSON.parse(
 	readIfPresent(join(evidenceDirectory, 'earlier-findings.json')) ?? '[]',
 );
-const changedFiles = readFileSync(join(evidenceDirectory, 'changed-files.txt'), 'utf8')
-	.split('\n')
-	.filter(path => path.trim() !== '');
+const pathList = name =>
+	readFileSync(join(evidenceDirectory, name), 'utf8')
+		.split('\n')
+		.filter(path => path.trim() !== '');
+const changedFiles = pathList('changed-files.txt');
+// The diff carries a file the pull request adds whole, as `+` lines, so its head content would
+// only repeat it. A renamed file is not listed here: its diff shows only what changed.
+const addedFiles = new Set(pathList('added-files.txt'));
 
 const skill = path => readIfPresent(join(skillDirectory, 'skills', path));
 const policy = name => readIfPresent(join(policyDirectory, name));
@@ -166,18 +184,25 @@ const outputReminder =
 const changedFileSection = () => {
 	const blocks = [];
 	for (const path of changedFiles) {
+		if (addedFiles.has(path)) continue;
 		if (isDiffOnly(path)) {
 			diffOnly.push(path);
 			continue;
 		}
 		const content = readIfPresent(join(headDirectory, path));
 		if (content === null) continue;
-		if (bytes(content) > fileLimit) {
+		const limit = fileLimitFor(path);
+		if (bytes(content) > limit.bytes) {
 			omissions.push(`${path} at the reviewed revision was too large to supply in full.`);
-			oversized.push(path);
+			oversized.push({ path, limit });
 			continue;
 		}
 		blocks.push(untrusted(`file ${path} at ${headSha}`, content));
+	}
+	if (changedFiles.some(path => addedFiles.has(path))) {
+		blocks.push(
+			'Files this pull request adds are not repeated here: the diff above shows each whole.',
+		);
 	}
 	if (diffOnly.length > 0) {
 		blocks.push(
@@ -301,7 +326,8 @@ const missingEssentials = [
 		.filter(label => essential.has(label))
 		.map(label => `${label}, displaced by the ${promptLimit}-byte review budget`),
 	...oversized.map(
-		path => `the full content of ${path}, which exceeds the ${fileLimit}-byte file limit`,
+		({ path, limit }) =>
+			`the full content of ${path}, which exceeds the ${limit.bytes}-byte ${limit.name}`,
 	),
 ];
 const fits = bytes(prompt) <= promptLimit && missingEssentials.length === 0;

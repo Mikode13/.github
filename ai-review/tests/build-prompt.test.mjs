@@ -20,8 +20,11 @@ const write = (path, content) => {
 	writeFileSync(path, content);
 };
 
-/** Lays out the directories the workflow prepares, with the given files changed at head. */
-function workspace(changed) {
+/**
+ * Lays out the directories the workflow prepares, with the given files changed at head and the
+ * listed ones among them added by the pull request.
+ */
+function workspace(changed, added = []) {
 	const root = mkdtempSync(join(tmpdir(), 'ai-review-build-'));
 	const directories = Object.fromEntries(
 		['base', 'evidence', 'head', 'policy', 'skill', 'work'].map(name => [name, join(root, name)]),
@@ -37,6 +40,7 @@ function workspace(changed) {
 	);
 	write(join(directories.evidence, 'change.diff'), 'diff --git a/x b/x\n');
 	write(join(directories.evidence, 'changed-files.txt'), `${Object.keys(changed).join('\n')}\n`);
+	write(join(directories.evidence, 'added-files.txt'), added.map(path => `${path}\n`).join(''));
 	for (const [path, content] of Object.entries(changed))
 		write(join(directories.head, path), content);
 
@@ -132,11 +136,66 @@ test('a changed decision log uses its diff and trusted base without the full hea
 test('oversized files outside the diff-only set remain incomplete', () => {
 	const report = build(
 		workspace({ 'docs/architecture.md': `# Architecture\n${'Other context.\n'.repeat(200)}` }),
-		{ FILE_LIMIT: '1000' },
+		{ MARKDOWN_FILE_LIMIT: '1000' },
 	);
 
 	assert.equal(report.fits, false);
-	assert.match(report.missingEssentials[0], /docs\/architecture\.md/u);
+	assert.match(
+		report.missingEssentials[0],
+		/docs\/architecture\.md.*1000-byte Markdown file limit/u,
+	);
+});
+
+test('a Markdown file between 64 KiB and 128 KiB is supplied whole under the default limits', () => {
+	const architecture = `# Architecture\n${'Boundary prose.\n'.repeat(6_000)}`;
+	assert.ok(architecture.length > 65_536 && architecture.length < 131_072);
+	const directories = workspace({ 'docs/architecture.md': architecture });
+	const report = build(directories);
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	assert.deepEqual(report.missingEssentials, []);
+	assert.ok(prompt.includes(architecture));
+});
+
+test('a code file over 64 KiB makes the build unfit and names the default code limit', () => {
+	const directories = workspace({ 'src/large.ts': '// padding\n'.repeat(6_000) });
+	const report = build(directories);
+
+	assert.equal(report.fits, false);
+	assert.deepEqual(report.missingEssentials, [
+		'the full content of src/large.ts, which exceeds the 65536-byte file limit',
+	]);
+});
+
+test('a file the pull request adds is reviewed through the diff, not repeated or refused for size', () => {
+	const added = `export const added = 1;\n${'// added-line\n'.repeat(200)}`;
+	const directories = workspace(
+		{ 'src/modified.js': 'export const modified = 1;\n', 'src/added.js': added },
+		['src/added.js'],
+	);
+	write(
+		join(directories.evidence, 'change.diff'),
+		`diff --git a/src/added.js b/src/added.js\nnew file mode 100644\n${added
+			.split('\n')
+			.map(line => `+${line}`)
+			.join('\n')}\n`,
+	);
+	const report = build(directories, { FILE_LIMIT: '1000' });
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	assert.deepEqual(report.missingEssentials, []);
+	assert.equal(prompt.split('// added-line').length - 1, 200);
+	assert.doesNotMatch(prompt, /file src\/added\.js at/u);
+	assert.match(prompt, /file src\/modified\.js at/u);
+	assert.match(prompt, /Files this pull request adds are not repeated here/u);
+});
+
+test('the default prompt budget is 1,650,000 bytes', () => {
+	const report = build(workspace({ 'src/small.js': 'export const small = 1;\n' }));
+
+	assert.equal(report.limit, 1_650_000);
 });
 
 test('the code review is supplied with the philosophy it reviews against', () => {
