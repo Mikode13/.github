@@ -142,10 +142,14 @@ lockfile costs nothing, because only the files a pull request changes are suppli
 
 A file the pull request adds is the other exception. It is already whole in the diff, as `+`
 lines, so it is not supplied a second time among the reviewed files and never counts as
-oversized; the prompt tells the reviewer so. The analysis job lists added files with `git diff --diff-filter=A`. A renamed file
-is not one of them: its diff shows only what changed, so its full content is still supplied.
+oversized; the prompt tells the reviewer so. The analysis job lists added files with
+`git diff --numstat --diff-filter=A`. A renamed file is not one of them: its diff shows only
+what changed, so its full content is still supplied. Nor is an added file git diffs as binary,
+because of its content or a `.gitattributes` rule the pull request may add itself: its diff
+says only that it differs, so it is supplied from head and checked against its limit like a
+modified file.
 
-The analysis job writes both path lists NUL-terminated, with `git diff -z`, so a file whose name
+The analysis job writes its path lists NUL-terminated, with `git diff -z`, so a file whose name
 has non-ASCII characters, quotes or a line break is found at head and supplied like any other.
 Without `-z`, git writes such a name C-quoted, and the file was skipped as if it were deleted.
 
@@ -259,7 +263,8 @@ any other reviewed content.
   environment, so `Analyze` refuses a fork before it starts and `Publish` reports a failing
   status; the reviewer assumes same-repository branches.
 - A reviewed file over 65,536 bytes, or a Markdown file over 131,072 bytes, makes the run
-  `incomplete`, unless the pull request adds it, or it is a lockfile or `docs/decisions.md`.
+  `incomplete`, unless the pull request adds it and the diff shows it as text, or it is a
+  lockfile or `docs/decisions.md`.
   The decision log is reviewed through its diff and trusted base.
 - The runner does not normalize intent. It supplies the closing issue and the description and
   asks the reviewer to resolve the change contract itself, rather than guessing which prose is

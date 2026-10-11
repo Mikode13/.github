@@ -93,8 +93,15 @@ const pathList = name =>
 		.filter(path => path !== '');
 const changedFiles = pathList('changed-files.txt');
 // The diff carries a file the pull request adds whole, as `+` lines, so its head content would
-// only repeat it. A renamed file is not listed here: its diff shows only what changed.
-const addedFiles = new Set(pathList('added-files.txt'));
+// only repeat it. A renamed file is not listed here: its diff shows only what changed. Nor is one
+// git diffs as binary, which `--numstat` counts as "-": its diff says only that it differs.
+// Each record is `added<TAB>deleted<TAB>path`, and only the path can contain a tab.
+const addedInDiff = new Set(
+	pathList('added-files.numstat')
+		.map(record => record.split('\t'))
+		.filter(([added]) => added !== '-')
+		.map(([, , ...path]) => path.join('\t')),
+);
 
 const skill = path => readIfPresent(join(skillDirectory, 'skills', path));
 const policy = name => readIfPresent(join(policyDirectory, name));
@@ -185,7 +192,7 @@ const outputReminder =
 const changedFileSection = () => {
 	const blocks = [];
 	for (const path of changedFiles) {
-		if (addedFiles.has(path)) continue;
+		if (addedInDiff.has(path)) continue;
 		if (isDiffOnly(path)) {
 			diffOnly.push(path);
 			continue;
@@ -200,10 +207,8 @@ const changedFileSection = () => {
 		}
 		blocks.push(untrusted(`file ${path} at ${headSha}`, content));
 	}
-	if (changedFiles.some(path => addedFiles.has(path))) {
-		blocks.push(
-			'Files this pull request adds are not repeated here: the diff above shows each whole.',
-		);
+	if (changedFiles.some(path => addedInDiff.has(path))) {
+		blocks.push('Added files whose full content the diff above shows are not repeated here.');
 	}
 	if (diffOnly.length > 0) {
 		blocks.push(

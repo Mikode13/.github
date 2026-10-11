@@ -45,7 +45,10 @@ function workspace(changed, added = []) {
 			.map(path => `${path}\0`)
 			.join(''),
 	);
-	write(join(directories.evidence, 'added-files.txt'), added.map(path => `${path}\0`).join(''));
+	write(
+		join(directories.evidence, 'added-files.numstat'),
+		added.map(path => `1\t0\t${path}\0`).join(''),
+	);
 	for (const [path, content] of Object.entries(changed))
 		write(join(directories.head, path), content);
 
@@ -262,7 +265,10 @@ test('a file the pull request adds is reviewed through the diff, not repeated or
 	assert.equal(prompt.split('// added-line').length - 1, 200);
 	assert.doesNotMatch(prompt, /file src\/added\.js at/u);
 	assert.match(prompt, /file src\/modified\.js at/u);
-	assert.match(prompt, /Files this pull request adds are not repeated here/u);
+	assert.match(
+		prompt,
+		/Added files whose full content the diff above shows are not repeated here\./u,
+	);
 });
 
 test('changed files with non-ASCII, quoted or multi-line names reach the reviewer', () => {
@@ -279,6 +285,37 @@ test('changed files with non-ASCII, quoted or multi-line names reach the reviewe
 		assert.ok(prompt.includes(`file ${name} at`), `${JSON.stringify(name)} was not supplied`);
 		assert.ok(prompt.includes(`after in ${JSON.stringify(name)}`));
 	}
+});
+
+test('an added file git diffs as binary is still supplied from head or declared oversized', () => {
+	const directories = gitWorkspace(
+		{ 'README.md': 'Base.\n' },
+		{
+			'.gitattributes': '*.dat binary\n',
+			'src/marked.dat': 'marked-binary-source\n',
+			'src/nul.js': 'export const nul = "nul-byte-source\0";\n',
+			'src/large.js': `export const large = "\0";\n${'// padding\n'.repeat(200)}`,
+			'src/plain.js': 'export const plain = "plain-added-source";\n',
+		},
+	);
+	const diff = readFileSync(join(directories.evidence, 'change.diff'), 'utf8');
+	assert.match(diff, /Binary files \/dev\/null and b\/src\/marked\.dat differ/u);
+	assert.match(diff, /Binary files \/dev\/null and b\/src\/nul\.js differ/u);
+
+	const report = build(directories, { FILE_LIMIT: '1000' });
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.match(prompt, /file src\/marked\.dat at [^>]*>>\nmarked-binary-source/u);
+	assert.match(prompt, /file src\/nul\.js at [^>]*>>\nexport const nul = "nul-byte-source/u);
+	assert.deepEqual(report.missingEssentials, [
+		'the full content of src/large.js, which exceeds the 1000-byte file limit',
+	]);
+	assert.doesNotMatch(prompt, /file src\/plain\.js at/u);
+	assert.equal(prompt.split('plain-added-source').length - 1, 1);
+	assert.match(
+		prompt,
+		/Added files whose full content the diff above shows are not repeated here\./u,
+	);
 });
 
 test('the default prompt budget is 1,650,000 bytes', () => {
