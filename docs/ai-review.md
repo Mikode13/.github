@@ -152,6 +152,9 @@ modified file.
 The analysis job writes its path lists NUL-terminated, with `git diff -z`, so a file whose name
 has non-ASCII characters, quotes or a line break is found at head and supplied like any other.
 Without `-z`, git writes such a name C-quoted, and the file was skipped as if it were deleted.
+Since a name can therefore hold a line break, every path the prompt names outside reviewed
+content, in a sentence or a fence label, and every path in the build report and the job log is
+written JSON-quoted. A name cannot start a line of its own, such as a forged section heading.
 
 A changed path that is not a regular file at head, such as a submodule, which the checkout
 leaves as an empty directory, or a symbolic link, is named in the prompt as one whose diff is

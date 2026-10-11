@@ -110,6 +110,13 @@ const trusted = path => readIfPresent(join(baseDirectory, path));
 /** Wraps reviewed content so that only text outside the fence can read as an instruction. */
 const untrusted = (label, body) => `<<${fence} ${label}>>\n${body}\n<<END ${fence}>>`;
 
+// A path is chosen by the pull request and, since the lists are NUL-separated, can hold a line
+// break. Written raw outside a fence, or in a fence label, it could start a forged line such as a
+// section heading. JSON quoting escapes every control character and quote, so each path stays on
+// the line it was placed in. Every path the builder writes, to the prompt, the build report or
+// the log, goes through this.
+const quoted = path => JSON.stringify(path);
+
 const source = (ref, revision) => ({ ref, revision });
 
 const buildReviewInput = () => ({
@@ -210,11 +217,11 @@ const changedFileSection = () => {
 		const content = readFileSync(headPath, 'utf8');
 		const limit = fileLimitFor(path);
 		if (bytes(content) > limit.bytes) {
-			omissions.push(`${path} at the reviewed revision was too large to supply in full.`);
+			omissions.push(`${quoted(path)} at the reviewed revision was too large to supply in full.`);
 			oversized.push({ path, limit });
 			continue;
 		}
-		blocks.push(untrusted(`file ${path} at ${headSha}`, content));
+		blocks.push(untrusted(`file ${quoted(path)} at ${headSha}`, content));
 	}
 	if (changedFiles.some(path => addedInDiff.has(path))) {
 		blocks.push('Added files whose full content the diff above shows are not repeated here.');
@@ -225,13 +232,13 @@ const changedFileSection = () => {
 		blocks.push(
 			`These changed paths are not regular files at the reviewed revision, such as a ` +
 				`submodule or a symbolic link, so the diff above is their whole change: ` +
-				`${notRegular.join(', ')}.`,
+				`${notRegular.map(quoted).join(', ')}.`,
 		);
 	}
 	if (diffOnly.length > 0) {
 		blocks.push(
 			`These files are reviewed through the diff above; their full head content is ` +
-				`intentionally not supplied: ${diffOnly.join(', ')}.` +
+				`intentionally not supplied: ${diffOnly.map(quoted).join(', ')}.` +
 				(diffOnly.includes('docs/decisions.md')
 					? ' The trusted base of docs/decisions.md is supplied separately when available.'
 					: ''),
@@ -351,7 +358,7 @@ const missingEssentials = [
 		.map(label => `${label}, displaced by the ${promptLimit}-byte review budget`),
 	...oversized.map(
 		({ path, limit }) =>
-			`the full content of ${path}, which exceeds the ${limit.bytes}-byte ${limit.name}`,
+			`the full content of ${quoted(path)}, which exceeds the ${limit.bytes}-byte ${limit.name}`,
 	),
 ];
 const fits = bytes(prompt) <= promptLimit && missingEssentials.length === 0;
