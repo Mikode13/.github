@@ -19,7 +19,7 @@ revision of [the actions](../ai-review). A change is a reviewed pull request her
 | Model and effort | `opus` at `high` reasoning effort                                                             |
 | Provider timeout | 15 minutes per turn, enforced by the runner                                                   |
 | Repair attempts  | At most one additional turn to recover a reply that failed contract validation                |
-| Evidence budget  | 1,250,000 bytes of prompt, about 500,000 tokens, filled in priority order and never truncated |
+| Evidence budget  | 1,650,000 bytes of prompt, about 660,000 tokens, filled in priority order and never truncated |
 | Cost ceiling     | The EUR 30 per month the standard allows for the whole provider account                       |
 | Policy           | The standards of `Mikode13/engineering` at the commit the workflow pins                       |
 
@@ -125,11 +125,14 @@ finding IDs out of anything a person reads, except as the `F1:` prefix that move
 item into that finding's comment.
 
 Dropping the trusted `AGENTS.md` or the reviewed files leaves nothing worth reviewing, and so
-does supplying a reviewed file only in part, so a reviewed file over 40,000 bytes counts as
-missing too. Either way the run is abandoned as `incomplete` before the provider is called
-rather than after it returns a vague one.
+does supplying a reviewed file only in part, so a reviewed file over its limit counts as
+missing too: 131,072 bytes for Markdown (`.md`, `.markdown`, `.mdx`), which is loaded whole and
+keeps growing, and 65,536 bytes for every other file. Either way the run is abandoned as
+`incomplete` before the provider is called rather than after it returns a vague one, and the
+summary names the limit the file exceeded. `PROMPT_LIMIT`, `FILE_LIMIT` and
+`MARKDOWN_FILE_LIMIT` override the budget, the code limit and the Markdown limit.
 
-Lockfiles and `docs/decisions.md` are the exceptions. A changed lockfile is reviewed through
+Lockfiles and `docs/decisions.md` are exceptions. A changed lockfile is reviewed through
 its diff, which shows every package and version that moved; its full resolution graph adds
 size without review value. The decision log's diff shows the changed decision, and its
 trusted base is supplied separately when it fits the prompt budget. Neither changed file is
@@ -137,14 +140,48 @@ supplied whole or counts as oversized. Other Markdown and workflow files still n
 full reviewed content, since their unchanged context can affect the change. An untouched
 lockfile costs nothing, because only the files a pull request changes are supplied.
 
+A file the pull request adds is the other exception. It is already whole in the diff, as `+`
+lines, so it is not supplied a second time among the reviewed files and never counts as
+oversized; the prompt tells the reviewer so. The analysis job lists added files with
+`git diff --numstat --diff-filter=A`. A renamed file is not one of them: its diff shows only
+what changed, so its full content is still supplied. Nor is an added file git diffs as binary,
+because of its content or a `.gitattributes` rule the pull request may add itself: its diff
+says only that it differs, so it is supplied from head and checked against its limit like a
+modified file.
+
+The analysis job writes its path lists NUL-terminated, with `git diff -z`, so a file whose name
+has non-ASCII characters, quotes or a line break is found at head and supplied like any other.
+Without `-z`, git writes such a name C-quoted, and the file was skipped as if it were deleted.
+Since a name can therefore hold a line break, every path the prompt names outside reviewed
+content, in a sentence or a fence label, and every path in the build report and the job log is
+written JSON-quoted. A name cannot start a line of its own, such as a forged section heading.
+
+A changed path that is not a regular file of the head checkout is named in the prompt as one
+whose diff is its whole change, and is never read. That covers a submodule, which the checkout
+leaves as an empty directory, a symbolic link, and any path beneath a link: git tracks nothing
+there, so a parent directory that does not resolve to exactly its own place in the checkout is a
+link the pull request added. No link, at the path or along it, can pull a file from outside the
+checkout into the prompt.
+
+A changed path that cannot be inspected at all, such as one beneath a link that loops or beneath
+an unreadable directory, is named in the prompt with the error code and is never read either. A
+pull request cannot abort its own review this way. Only a path that no longer exists is treated
+as deleted. Reading a file already checked to be a regular file inside the checkout is not
+guarded: a failure there means the checkout itself is broken, and the analysis job fails.
+
 The prompt reaches `harness-cli` as a file through `--prompt-file`, so the model sets its size
-rather than the command line. The 1,250,000-byte budget is about 500,000 tokens at the roughly
-2.5 characters per token that Anthropic documents for the current tokenizer. That is half of
-Opus 5's 1M-token window: it leaves room for the agent's own prompt and the reply, and it
-stays below the length at which a long context starts to degrade the review. The report records
-the tokens `harness-cli` returns, but that figure cannot confirm the ratio yet: `harness` counts
-only uncached input, so the first real review reported 2 input tokens for a 143,506-byte
-prompt.
+rather than the command line. The 1,650,000-byte budget is about 660,000 tokens at the roughly
+2.5 characters per token that Anthropic documents for the current tokenizer. That is 66% of
+Opus 5's 1M-token window, which leaves room for the agent's own prompt and the reply. The
+earlier 50% was a heuristic: a long context degrades the review gradually, with no published
+threshold for Opus 5. The maintainer chose 66% because the slide is reported to become more
+noticeable around there, and because large integration pull requests keep needing more than
+half. `Mikode13/harness` pull request 93 at `df9ae89`, with an 858,212-byte diff and 508,310
+bytes of added files, needed 2,129,280 bytes while those files were sent twice. This revision
+builds it in 1,607,573 bytes, which fits with 42,427 to spare, and none of its modified files
+exceeds its new limit. The report records the tokens `harness-cli` returns, but that figure
+cannot confirm the ratio yet: `harness` counts only uncached input, so the first real review
+reported 2 input tokens for a 143,506-byte prompt.
 
 Measured against the pinned skill and the current standards:
 
@@ -242,8 +279,10 @@ any other reviewed content.
 - A pull request from a fork is not reviewed. `pull_request_target` would let its run read the
   environment, so `Analyze` refuses a fork before it starts and `Publish` reports a failing
   status; the reviewer assumes same-repository branches.
-- A reviewed file over 40,000 bytes, other than a lockfile or `docs/decisions.md`, makes the
-  run `incomplete`. The decision log is reviewed through its diff and trusted base.
+- A reviewed file over 65,536 bytes, or a Markdown file over 131,072 bytes, makes the run
+  `incomplete`, unless the pull request adds it and the diff shows it as text, or it is a
+  lockfile or `docs/decisions.md`.
+  The decision log is reviewed through its diff and trusted base.
 - The runner does not normalize intent. It supplies the closing issue and the description and
   asks the reviewer to resolve the change contract itself, rather than guessing which prose is
   an acceptance criterion.

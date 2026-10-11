@@ -14,8 +14,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { shapeExamples } from './contract.mjs';
 
@@ -36,12 +36,25 @@ const policyDirectory = environment('POLICY_DIR');
 const policyRevision = environment('POLICY_REVISION');
 const outputDirectory = environment('OUTPUT_DIR');
 
-// About 500,000 tokens at the roughly 2.5 characters per token that Anthropic documents for the
-// current tokenizer: half of Opus 5's 1M-token window, which leaves room for the agent's own
-// prompt and the reply and stays below the length at which a long context degrades the review.
-// Every run reports its input tokens, so the first real runs can confirm the ratio.
-const promptLimit = Number(process.env.PROMPT_LIMIT ?? 1_250_000);
-const fileLimit = Number(process.env.FILE_LIMIT ?? 40_000);
+// About 660,000 tokens at the roughly 2.5 characters per token that Anthropic documents for the
+// current tokenizer: 66% of Opus 5's 1M-token window, which leaves room for the agent's own
+// prompt and the reply. The earlier 50% was a heuristic. A long context degrades the review
+// gradually, with no published threshold for Opus 5; the slide is reported to become more
+// noticeable around two thirds of the window, and large integration pull requests keep needing
+// more than half of it, so the maintainer chose 66%. Every run reports its input tokens, so real
+// runs can confirm the ratio.
+const promptLimit = Number(process.env.PROMPT_LIMIT ?? 1_650_000);
+
+// A reviewed file supplied only in part would be judged unseen, so each one has a ceiling.
+// Markdown is loaded whole and keeps growing, as a project's docs/architecture.md does, so it
+// gets twice the room of code. Both are powers of two by the maintainer's choice.
+const codeFileLimit = Number(process.env.FILE_LIMIT ?? 65_536);
+const markdownFileLimit = Number(process.env.MARKDOWN_FILE_LIMIT ?? 131_072);
+const isMarkdown = path => /\.(?:md|markdown|mdx)$/iu.test(path);
+const fileLimitFor = path =>
+	isMarkdown(path)
+		? { bytes: markdownFileLimit, name: 'Markdown file limit' }
+		: { bytes: codeFileLimit, name: 'file limit' };
 
 // Declared omissions are discovered while sections are selected, so the budget keeps room for
 // them rather than re-running the selection once the normalized input has grown.
@@ -73,9 +86,22 @@ const diff = readFileSync(join(evidenceDirectory, 'change.diff'), 'utf8');
 const earlierFindings = JSON.parse(
 	readIfPresent(join(evidenceDirectory, 'earlier-findings.json')) ?? '[]',
 );
-const changedFiles = readFileSync(join(evidenceDirectory, 'changed-files.txt'), 'utf8')
-	.split('\n')
-	.filter(path => path.trim() !== '');
+// Written by `git diff -z`: each path verbatim and NUL-terminated, never C-quoted.
+const pathList = name =>
+	readFileSync(join(evidenceDirectory, name), 'utf8')
+		.split('\0')
+		.filter(path => path !== '');
+const changedFiles = pathList('changed-files.txt');
+// The diff carries a file the pull request adds whole, as `+` lines, so its head content would
+// only repeat it. A renamed file is not listed here: its diff shows only what changed. Nor is one
+// git diffs as binary, which `--numstat` counts as "-": its diff says only that it differs.
+// Each record is `added<TAB>deleted<TAB>path`, and only the path can contain a tab.
+const addedInDiff = new Set(
+	pathList('added-files.numstat')
+		.map(record => record.split('\t'))
+		.filter(([added]) => added !== '-')
+		.map(([, , ...path]) => path.join('\t')),
+);
 
 const skill = path => readIfPresent(join(skillDirectory, 'skills', path));
 const policy = name => readIfPresent(join(policyDirectory, name));
@@ -83,6 +109,13 @@ const trusted = path => readIfPresent(join(baseDirectory, path));
 
 /** Wraps reviewed content so that only text outside the fence can read as an instruction. */
 const untrusted = (label, body) => `<<${fence} ${label}>>\n${body}\n<<END ${fence}>>`;
+
+// A path is chosen by the pull request and, since the lists are NUL-separated, can hold a line
+// break. Written raw outside a fence, or in a fence label, it could start a forged line such as a
+// section heading. JSON quoting escapes every control character and quote, so each path stays on
+// the line it was placed in. Every path the builder writes, to the prompt, the build report or
+// the log, goes through this.
+const quoted = path => JSON.stringify(path);
 
 const source = (ref, revision) => ({ ref, revision });
 
@@ -163,26 +196,90 @@ validate as incomplete.`;
 const outputReminder =
 	'Return the version 2 result object now. Only JSON, starting with "{" and ending with "}".';
 
+const realHead = realpathSync(headDirectory);
+
+/**
+ * What a changed path is in the head checkout, without following a symbolic link anywhere along
+ * it. Git never tracks a file beneath a link, so a parent directory that does not resolve to
+ * exactly its own place inside the checkout is a link the pull request put there: the path is
+ * reported as `beneath-link` and never read, wherever the link points. The last component is
+ * checked with lstat, so a link there is reported as what it is rather than followed.
+ *
+ * A path the pull request can make impossible to inspect, such as one beneath a link that loops
+ * (ELOOP), is reported as `{ uninspectable: code }` rather than aborting the build, so
+ * no branch can deny itself a completed review. Only a path that is gone counts as absent.
+ */
+const headEntry = path => {
+	try {
+		const parent = dirname(path);
+		if (realpathSync(join(headDirectory, parent)) !== join(realHead, parent)) {
+			return 'beneath-link';
+		}
+		return lstatSync(join(headDirectory, path)).isFile() ? 'file' : 'not-a-file';
+	} catch (error) {
+		// Gone, or beneath what is now a file: either way the path no longer exists at head.
+		if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return 'absent';
+		return { uninspectable: error.code ?? 'an unknown error' };
+	}
+};
+
 const changedFileSection = () => {
 	const blocks = [];
+	const notRegular = [];
+	const uninspectable = [];
 	for (const path of changedFiles) {
+		if (addedInDiff.has(path)) continue;
 		if (isDiffOnly(path)) {
 			diffOnly.push(path);
 			continue;
 		}
-		const content = readIfPresent(join(headDirectory, path));
-		if (content === null) continue;
-		if (bytes(content) > fileLimit) {
-			omissions.push(`${path} at the reviewed revision was too large to supply in full.`);
-			oversized.push(path);
+		const entry = headEntry(path);
+		// Deleted at head: the diff shows the whole removal.
+		if (entry === 'absent') continue;
+		if (typeof entry === 'object') {
+			uninspectable.push(`${quoted(path)} (${entry.uninspectable})`);
 			continue;
 		}
-		blocks.push(untrusted(`file ${path} at ${headSha}`, content));
+		if (entry !== 'file') {
+			notRegular.push(path);
+			continue;
+		}
+		// Not guarded: the path was just checked to be a regular file inside the checkout, which a
+		// pull request cannot make unreadable, so a failure here means the checkout itself broke.
+		const content = readFileSync(join(headDirectory, path), 'utf8');
+		const limit = fileLimitFor(path);
+		if (bytes(content) > limit.bytes) {
+			omissions.push(`${quoted(path)} at the reviewed revision was too large to supply in full.`);
+			oversized.push({ path, limit });
+			continue;
+		}
+		blocks.push(untrusted(`file ${quoted(path)} at ${headSha}`, content));
+	}
+	if (changedFiles.some(path => addedInDiff.has(path))) {
+		blocks.push('Added files whose full content the diff above shows are not repeated here.');
+	}
+	// A submodule is an empty directory in a checkout without submodules, a symbolic link has no
+	// content but its target, and git tracks nothing beneath a link, so a path there is deleted.
+	// For each, the diff is all there is to review.
+	if (notRegular.length > 0) {
+		blocks.push(
+			`These changed paths are not regular files of the reviewed checkout, such as a ` +
+				`submodule, a symbolic link or a path beneath one, so the diff above is their whole ` +
+				`change: ` +
+				`${notRegular.map(quoted).join(', ')}.`,
+		);
+	}
+	if (uninspectable.length > 0) {
+		blocks.push(
+			`These changed paths could not be inspected at the reviewed revision, so their head ` +
+				`content is not supplied and the diff above is all there is of them: ` +
+				`${uninspectable.join(', ')}.`,
+		);
 	}
 	if (diffOnly.length > 0) {
 		blocks.push(
 			`These files are reviewed through the diff above; their full head content is ` +
-				`intentionally not supplied: ${diffOnly.join(', ')}.` +
+				`intentionally not supplied: ${diffOnly.map(quoted).join(', ')}.` +
 				(diffOnly.includes('docs/decisions.md')
 					? ' The trusted base of docs/decisions.md is supplied separately when available.'
 					: ''),
@@ -301,7 +398,8 @@ const missingEssentials = [
 		.filter(label => essential.has(label))
 		.map(label => `${label}, displaced by the ${promptLimit}-byte review budget`),
 	...oversized.map(
-		path => `the full content of ${path}, which exceeds the ${fileLimit}-byte file limit`,
+		({ path, limit }) =>
+			`the full content of ${quoted(path)}, which exceeds the ${limit.bytes}-byte ${limit.name}`,
 	),
 ];
 const fits = bytes(prompt) <= promptLimit && missingEssentials.length === 0;
