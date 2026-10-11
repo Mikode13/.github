@@ -14,8 +14,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { shapeExamples } from './contract.mjs';
 
@@ -196,6 +196,29 @@ validate as incomplete.`;
 const outputReminder =
 	'Return the version 2 result object now. Only JSON, starting with "{" and ending with "}".';
 
+const realHead = realpathSync(headDirectory);
+
+/**
+ * What a changed path is in the head checkout, without following a symbolic link anywhere along
+ * it. Git never tracks a file beneath a link, so a parent directory that does not resolve to
+ * exactly its own place inside the checkout is a link the pull request put there: the path is
+ * reported as `beneath-link` and never read, wherever the link points. The last component is
+ * checked with lstat, so a link there is reported as what it is rather than followed.
+ */
+const headEntry = path => {
+	try {
+		const parent = dirname(path);
+		if (realpathSync(join(headDirectory, parent)) !== join(realHead, parent)) {
+			return 'beneath-link';
+		}
+		return lstatSync(join(headDirectory, path)).isFile() ? 'file' : 'not-a-file';
+	} catch (error) {
+		// Gone, or beneath what is now a file: either way the path no longer exists at head.
+		if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return 'absent';
+		throw error;
+	}
+};
+
 const changedFileSection = () => {
 	const blocks = [];
 	const notRegular = [];
@@ -205,16 +228,14 @@ const changedFileSection = () => {
 			diffOnly.push(path);
 			continue;
 		}
-		// lstat, not stat: a symbolic link is read for what it is, never followed out of the head.
-		const headPath = join(headDirectory, path);
-		const entry = lstatSync(headPath, { throwIfNoEntry: false });
+		const entry = headEntry(path);
 		// Deleted at head: the diff shows the whole removal.
-		if (entry === undefined) continue;
-		if (!entry.isFile()) {
+		if (entry === 'absent') continue;
+		if (entry !== 'file') {
 			notRegular.push(path);
 			continue;
 		}
-		const content = readFileSync(headPath, 'utf8');
+		const content = readFileSync(join(headDirectory, path), 'utf8');
 		const limit = fileLimitFor(path);
 		if (bytes(content) > limit.bytes) {
 			omissions.push(`${quoted(path)} at the reviewed revision was too large to supply in full.`);
@@ -226,12 +247,14 @@ const changedFileSection = () => {
 	if (changedFiles.some(path => addedInDiff.has(path))) {
 		blocks.push('Added files whose full content the diff above shows are not repeated here.');
 	}
-	// A submodule is an empty directory in a checkout without submodules, and a symbolic link has
-	// no content but its target. For both, the diff's one-line change is all there is to review.
+	// A submodule is an empty directory in a checkout without submodules, a symbolic link has no
+	// content but its target, and git tracks nothing beneath a link, so a path there is deleted.
+	// For each, the diff is all there is to review.
 	if (notRegular.length > 0) {
 		blocks.push(
-			`These changed paths are not regular files at the reviewed revision, such as a ` +
-				`submodule or a symbolic link, so the diff above is their whole change: ` +
+			`These changed paths are not regular files of the reviewed checkout, such as a ` +
+				`submodule, a symbolic link or a path beneath one, so the diff above is their whole ` +
+				`change: ` +
 				`${notRegular.map(quoted).join(', ')}.`,
 		);
 	}

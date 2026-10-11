@@ -156,9 +156,11 @@ Since a name can therefore hold a line break, every path the prompt names outsid
 content, in a sentence or a fence label, and every path in the build report and the job log is
 written JSON-quoted. A name cannot start a line of its own, such as a forged section heading.
 
-A changed path that is not a regular file at head, such as a submodule, which the checkout
-leaves as an empty directory, or a symbolic link, is named in the prompt as one whose diff is
-its whole change. Its head is never read, so a link cannot pull a file from outside the
+A changed path that is not a regular file of the head checkout is named in the prompt as one
+whose diff is its whole change, and is never read. That covers a submodule, which the checkout
+leaves as an empty directory, a symbolic link, and any path beneath a link: git tracks nothing
+there, so a parent directory that does not resolve to exactly its own place in the checkout is a
+link the pull request added. No link, at the path or along it, can pull a file from outside the
 checkout into the prompt.
 
 The prompt reaches `harness-cli` as a file through `--prompt-file`, so the model sets its size

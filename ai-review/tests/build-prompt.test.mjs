@@ -347,8 +347,39 @@ test('a changed submodule or symbolic link is named as such instead of crashing 
 	assert.doesNotMatch(prompt, /outside-the-checkout/u);
 	assert.match(
 		prompt,
-		/not regular files at the reviewed revision, such as a submodule or a symbolic link, so the diff above is their whole change: "vendor\/module", "src\/link\.js"\./u,
+		/not regular files of the reviewed checkout, such as a submodule, a symbolic link or a path beneath one, so the diff above is their whole change: "vendor\/module", "src\/link\.js"\./u,
 	);
+});
+
+test('a path beneath a directory the pull request replaced with a link is never read', () => {
+	const directories = workspace({ 'src/small.js': 'export const small = 1;\n' });
+	// A sibling whose name starts with the head directory's: a prefix check without a separator
+	// would take it for the checkout.
+	const outside = `${directories.head}-outside`;
+	write(join(outside, 'notes.md'), 'outside-the-checkout\n');
+	// `docs` was a directory at base and is a link at head, so git lists `docs/notes.md` deleted.
+	symlinkSync(outside, join(directories.head, 'docs'));
+	// `guide` was a directory at base and is a file at head.
+	write(join(directories.head, 'guide'), 'Now a file.\n');
+	write(
+		join(directories.evidence, 'changed-files.txt'),
+		['src/small.js', 'docs', 'docs/notes.md', 'guide', 'guide/notes.md']
+			.map(path => `${path}\0`)
+			.join(''),
+	);
+	const report = build(directories);
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	assert.doesNotMatch(prompt, /outside-the-checkout/u);
+	assert.match(prompt, /file "src\/small\.js" at/u);
+	assert.match(prompt, /file "guide" at [^>]*>>\nNow a file\./u);
+	assert.match(
+		prompt,
+		/a path beneath one, so the diff above is their whole change: "docs", "docs\/notes\.md"\./u,
+	);
+	// Gone at head: like any deleted path, it is reviewed through the diff alone.
+	assert.doesNotMatch(prompt, /file "guide\/notes\.md" at/u);
 });
 
 test('a path with a line break cannot forge a prompt line outside a fence', () => {
