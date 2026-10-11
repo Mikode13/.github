@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -315,6 +322,29 @@ test('an added file git diffs as binary is still supplied from head or declared 
 	assert.match(
 		prompt,
 		/Added files whose full content the diff above shows are not repeated here\./u,
+	);
+});
+
+test('a changed submodule or symbolic link is named as such instead of crashing or being read', () => {
+	const directories = workspace({ 'src/small.js': 'export const small = 1;\n' });
+	// A checkout without submodules leaves an empty directory where a gitlink points.
+	mkdirSync(join(directories.head, 'vendor/module'), { recursive: true });
+	const outside = join(directories.work, 'outside.txt');
+	write(outside, 'outside-the-checkout\n');
+	symlinkSync(outside, join(directories.head, 'src/link.js'));
+	write(
+		join(directories.evidence, 'changed-files.txt'),
+		['src/small.js', 'vendor/module', 'src/link.js'].map(path => `${path}\0`).join(''),
+	);
+	const report = build(directories);
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	assert.match(prompt, /file src\/small\.js at/u);
+	assert.doesNotMatch(prompt, /outside-the-checkout/u);
+	assert.match(
+		prompt,
+		/not regular files at the reviewed revision, such as a submodule or a symbolic link, so the diff above is their whole change: vendor\/module, src\/link\.js\./u,
 	);
 });
 

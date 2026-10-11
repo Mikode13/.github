@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { shapeExamples } from './contract.mjs';
@@ -191,14 +191,23 @@ const outputReminder =
 
 const changedFileSection = () => {
 	const blocks = [];
+	const notRegular = [];
 	for (const path of changedFiles) {
 		if (addedInDiff.has(path)) continue;
 		if (isDiffOnly(path)) {
 			diffOnly.push(path);
 			continue;
 		}
-		const content = readIfPresent(join(headDirectory, path));
-		if (content === null) continue;
+		// lstat, not stat: a symbolic link is read for what it is, never followed out of the head.
+		const headPath = join(headDirectory, path);
+		const entry = lstatSync(headPath, { throwIfNoEntry: false });
+		// Deleted at head: the diff shows the whole removal.
+		if (entry === undefined) continue;
+		if (!entry.isFile()) {
+			notRegular.push(path);
+			continue;
+		}
+		const content = readFileSync(headPath, 'utf8');
 		const limit = fileLimitFor(path);
 		if (bytes(content) > limit.bytes) {
 			omissions.push(`${path} at the reviewed revision was too large to supply in full.`);
@@ -209,6 +218,15 @@ const changedFileSection = () => {
 	}
 	if (changedFiles.some(path => addedInDiff.has(path))) {
 		blocks.push('Added files whose full content the diff above shows are not repeated here.');
+	}
+	// A submodule is an empty directory in a checkout without submodules, and a symbolic link has
+	// no content but its target. For both, the diff's one-line change is all there is to review.
+	if (notRegular.length > 0) {
+		blocks.push(
+			`These changed paths are not regular files at the reviewed revision, such as a ` +
+				`submodule or a symbolic link, so the diff above is their whole change: ` +
+				`${notRegular.join(', ')}.`,
+		);
 	}
 	if (diffOnly.length > 0) {
 		blocks.push(
