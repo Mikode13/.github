@@ -86,10 +86,11 @@ const diff = readFileSync(join(evidenceDirectory, 'change.diff'), 'utf8');
 const earlierFindings = JSON.parse(
 	readIfPresent(join(evidenceDirectory, 'earlier-findings.json')) ?? '[]',
 );
+// Written by `git diff -z`: each path verbatim and NUL-terminated, never C-quoted.
 const pathList = name =>
 	readFileSync(join(evidenceDirectory, name), 'utf8')
-		.split('\n')
-		.filter(path => path.trim() !== '');
+		.split('\0')
+		.filter(path => path !== '');
 const changedFiles = pathList('changed-files.txt');
 // The diff carries a file the pull request adds whole, as `+` lines, so its head content would
 // only repeat it. A renamed file is not listed here: its diff shows only what changed.

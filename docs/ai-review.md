@@ -145,6 +145,10 @@ lines, so it is not supplied a second time among the reviewed files and never co
 oversized; the prompt tells the reviewer so. The analysis job lists added files with `git diff --diff-filter=A`. A renamed file
 is not one of them: its diff shows only what changed, so its full content is still supplied.
 
+The analysis job writes both path lists NUL-terminated, with `git diff -z`, so a file whose name
+has non-ASCII characters, quotes or a line break is found at head and supplied like any other.
+Without `-z`, git writes such a name C-quoted, and the file was skipped as if it were deleted.
+
 The prompt reaches `harness-cli` as a file through `--prompt-file`, so the model sets its size
 rather than the command line. The 1,650,000-byte budget is about 660,000 tokens at the roughly
 2.5 characters per token that Anthropic documents for the current tokenizer. That is 66% of

@@ -169,8 +169,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git diff --no-ext-diff --unified=3 "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/change.diff"
-          git diff --name-only "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/changed-files.txt"
-          git diff --name-only --diff-filter=A "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/added-files.txt"
+          # Path lists are NUL-terminated (-z) so that each path arrives verbatim: without it git
+          # C-quotes a non-ASCII or quoted name, and build-prompt.mjs would find no such file.
+          git diff -z --name-only "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/changed-files.txt"
+          git diff -z --name-only --diff-filter=A "${BASE_SHA}...${HEAD_SHA}" > "${EVIDENCE_DIR}/added-files.txt"
 
           gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" > "${EVIDENCE_DIR}/pull-request.json"
 

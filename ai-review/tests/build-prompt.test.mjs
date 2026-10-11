@@ -39,11 +39,84 @@ function workspace(changed, added = []) {
 		JSON.stringify({ html_url: 'https://github.com/example/pull/1', body: 'Goal: a change.' }),
 	);
 	write(join(directories.evidence, 'change.diff'), 'diff --git a/x b/x\n');
-	write(join(directories.evidence, 'changed-files.txt'), `${Object.keys(changed).join('\n')}\n`);
-	write(join(directories.evidence, 'added-files.txt'), added.map(path => `${path}\n`).join(''));
+	write(
+		join(directories.evidence, 'changed-files.txt'),
+		Object.keys(changed)
+			.map(path => `${path}\0`)
+			.join(''),
+	);
+	write(join(directories.evidence, 'added-files.txt'), added.map(path => `${path}\0`).join(''));
 	for (const [path, content] of Object.entries(changed))
 		write(join(directories.head, path), content);
 
+	return directories;
+}
+
+// Git as a fresh runner has it, so a developer's own settings, such as core.quotePath=false,
+// cannot hide what the producers write by default.
+const gitEnvironment = {
+	...process.env,
+	GIT_CONFIG_GLOBAL: '/dev/null',
+	GIT_CONFIG_NOSYSTEM: '1',
+	GIT_AUTHOR_NAME: 'Test',
+	GIT_AUTHOR_EMAIL: 'test@example.invalid',
+	GIT_COMMITTER_NAME: 'Test',
+	GIT_COMMITTER_EMAIL: 'test@example.invalid',
+};
+
+const git = (cwd, ...args) => {
+	const run = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitEnvironment });
+	assert.equal(run.status, 0, run.stderr);
+	return run.stdout.trim();
+};
+
+/** The commands both evidence producers run to collect the diff and its path lists. */
+function producerCommands() {
+	const [action, workflow] = [
+		'ai-review/analyze/action.yml',
+		'.github/workflows/ai-review.yml',
+	].map(path =>
+		readFileSync(join(here, '..', '..', path), 'utf8')
+			.split('\n')
+			.map(line => line.trim())
+			.filter(line => line.startsWith('git diff ')),
+	);
+	assert.deepEqual(workflow, action, 'the two producers collect different evidence');
+	return action;
+}
+
+/**
+ * Lays out the workflow directories with the head directory as a real checkout: `baseFiles` are
+ * committed first, then `headFiles` on top, where `null` deletes a path. The evidence is
+ * collected by running the producers' own commands, as the analysis job does.
+ */
+function gitWorkspace(baseFiles, headFiles) {
+	const directories = workspace({});
+	const repository = directories.head;
+	const commit = files => {
+		for (const [path, content] of Object.entries(files)) {
+			if (content === null) git(repository, 'rm', '-q', '--', path);
+			else write(join(repository, path), content);
+		}
+		git(repository, 'add', '-A');
+		git(repository, 'commit', '-q', '--allow-empty', '-m', 'commit');
+		return git(repository, 'rev-parse', 'HEAD');
+	};
+	git(repository, 'init', '-q', '-b', 'main');
+	const baseCommit = commit(baseFiles);
+	const headCommit = commit(headFiles);
+
+	const run = spawnSync('bash', ['-euo', 'pipefail', '-c', producerCommands().join('\n')], {
+		cwd: repository,
+		encoding: 'utf8',
+		env: {
+			...gitEnvironment,
+			BASE_SHA: baseCommit,
+			HEAD_SHA: headCommit,
+			EVIDENCE_DIR: directories.evidence,
+		},
+	});
+	assert.equal(run.status, 0, run.stderr);
 	return directories;
 }
 
@@ -190,6 +263,22 @@ test('a file the pull request adds is reviewed through the diff, not repeated or
 	assert.doesNotMatch(prompt, /file src\/added\.js at/u);
 	assert.match(prompt, /file src\/modified\.js at/u);
 	assert.match(prompt, /Files this pull request adds are not repeated here/u);
+});
+
+test('changed files with non-ASCII, quoted or multi-line names reach the reviewer', () => {
+	const names = ['docs/\u00e9t\u00e9.md', 'src/we"ird.js', 'src/two\nlines.js'];
+	const directories = gitWorkspace(
+		Object.fromEntries(names.map(name => [name, 'before\n'])),
+		Object.fromEntries(names.map(name => [name, `after in ${JSON.stringify(name)}\n`])),
+	);
+	const report = build(directories);
+	const prompt = readFileSync(join(directories.work, 'prompt.txt'), 'utf8');
+
+	assert.equal(report.fits, true);
+	for (const name of names) {
+		assert.ok(prompt.includes(`file ${name} at`), `${JSON.stringify(name)} was not supplied`);
+		assert.ok(prompt.includes(`after in ${JSON.stringify(name)}`));
+	}
 });
 
 test('the default prompt budget is 1,650,000 bytes', () => {
